@@ -8,6 +8,8 @@ import { WorkspaceHeader } from "./workspace-header";
 import { SidebarItem } from "./sidebar-item";
 import { useGetChannels } from "@/app/features/channels/api/use-get-channels";
 import { WorkspaceSection } from "./workspace-section";
+import { useGetMembers } from "@/app/features/members/api/use-get-members";
+import { UserItem } from "./user-item";
 
 interface ItemProps {
   label: string;
@@ -58,6 +60,7 @@ export const WorkspacesSidebar = () => {
   const { data: currentMember, isLoading: isCurrentMemberLoading } = useCurrentMember({ workspaceId });
   const { data: workspace, isLoading: isWorkspaceLoading } = useGetWorkspace({ id: workspaceId });
   const { data: channels, isLoading: isChannelsLoading } = useGetChannels({ workspaceId });
+  const { data: members, isLoading: isMembersLoading } = useGetMembers({ workspaceId });
 
 
   if (isCurrentMemberLoading || isWorkspaceLoading) {
@@ -110,6 +113,21 @@ export const WorkspacesSidebar = () => {
                 key={channelItem._id}
                 id={channelItem._id}
             />
+            ))}
+            </WorkspaceSection>
+            <WorkspaceSection
+            label="Direct Messages"
+            hint="new channel"
+            onNew={() => {}}
+            >
+            {members?.map((item) => (
+              <UserItem 
+              key={item._id}
+              id={item._id}
+              label={item.user?.name}
+              image={item.user?.image}
+            
+              />
             ))}
             </WorkspaceSection>
           </div>

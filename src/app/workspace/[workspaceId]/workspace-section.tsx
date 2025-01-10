@@ -1,5 +1,7 @@
 import { Button } from "@/components/ui/button";
 import { FaCaretDown } from "react-icons/fa";
+import { useToggle } from "react-use";
+import { cn } from "@/lib/utils";
 
 interface WorkspaceSectionProps {
     children: React.ReactNode;
@@ -9,10 +11,12 @@ interface WorkspaceSectionProps {
 }
 
 export const WorkspaceSection: React.FC<WorkspaceSectionProps> = ({ children, label, hint, onNew }) => {
+    const [on, toggle] = useToggle(true);
+
     return <div className="flex flex-col mt-3 px-2">
         <div className="flex items-center px-3.5 group">
-            <Button variant="transparent" className="p-0.5 text-sm text-[#e0ffe0] shrink-0 size-6">
-                <FaCaretDown className="size-2.5" />
+            <Button variant="transparent" className="p-0.5 text-sm text-[#e0ffe0] shrink-0 size-6" onClick={toggle}>
+                <FaCaretDown className={cn("size-2.5", on && "-rotate-90")}  />
             </Button>
             <Button
             variant="transparent"
@@ -22,6 +26,6 @@ export const WorkspaceSection: React.FC<WorkspaceSectionProps> = ({ children, la
                 <span className="truncate">{label}</span>
             </Button>
         </div>
-        {children}
+        {on && children}
     </div>
 }

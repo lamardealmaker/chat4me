@@ -59,9 +59,9 @@ export const UserButton = () => {
   return (
     <DropdownMenu modal={false}>
       <DropdownMenuTrigger className="outline-none relative">
-        <Avatar className="size-10 hover:opacity-75 transition">
-          <AvatarImage src={image} alt={name} />
-          <AvatarFallback className={`${getRandomColor()} text-white`}>
+        <Avatar className="size-10 hover:opacity-75 rounded-md transition">
+          <AvatarImage className="rounded-md" src={image} alt={name} />
+          <AvatarFallback className={`${getRandomColor()} text-white md-rounded`}>
             {initials}
           </AvatarFallback>
         </Avatar>
