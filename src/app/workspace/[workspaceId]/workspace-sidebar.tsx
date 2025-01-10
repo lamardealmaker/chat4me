@@ -10,6 +10,7 @@ import { useGetChannels } from "@/app/features/channels/api/use-get-channels";
 import { WorkspaceSection } from "./workspace-section";
 import { useGetMembers } from "@/app/features/members/api/use-get-members";
 import { UserItem } from "./user-item";
+import { useCreateChannelModal } from "@/app/features/channels/store/use-create-channel-modal";
 
 interface ItemProps {
   label: string;
@@ -57,6 +58,11 @@ const SectionHeader = ({
 
 export const WorkspacesSidebar = () => {
   const workspaceId = useWorkspaceId();
+
+  const [_open, setOpen] = useCreateChannelModal();
+
+
+
   const { data: currentMember, isLoading: isCurrentMemberLoading } = useCurrentMember({ workspaceId });
   const { data: workspace, isLoading: isWorkspaceLoading } = useGetWorkspace({ id: workspaceId });
   const { data: channels, isLoading: isChannelsLoading } = useGetChannels({ workspaceId });
@@ -103,8 +109,8 @@ export const WorkspacesSidebar = () => {
               /></ div>
             <WorkspaceSection
             label="Channels"
-            hint="new channel"
-            onNew={() => {}}
+            hint={currentMember[0]?.role === "admin" ? "+" : ""}
+            onNew={() => setOpen(true)}
             >
             {channels?.map((channelItem) => (
             <SidebarItem
@@ -117,7 +123,7 @@ export const WorkspacesSidebar = () => {
             </WorkspaceSection>
             <WorkspaceSection
             label="Direct Messages"
-            hint="new channel"
+            hint="+"
             onNew={() => {}}
             >
             {members?.map((item) => (
