@@ -61,25 +61,25 @@ export const PreferencesModal = ({ open, setOpen, initialValue }: PreferencesMod
 
     const handleDelete = async () => {
         try {
-            setOpen(false);
             setDeleteOpen(false);
-            router.push("/");
             
             await removeWorkspace(
                 { id: workspaceId },
                 {
                     onSuccess: () => {
                         toast.success("Workspace deleted successfully");
+                        setOpen(false);
+                        router.push("/");
                     },
-                    onError: () => {
-                        toast.error("Failed to delete workspace");
-                        router.push(`/workspace/${workspaceId}`);
+                    onError: (error) => {
+                        setDeleteOpen(true);
+                        toast.error("Failed to delete workspace: " + error.message);
                     }
                 }
             );
         } catch (error) {
+            setDeleteOpen(true);
             toast.error("Failed to delete workspace");
-            router.push(`/workspace/${workspaceId}`);
         }
     }
 

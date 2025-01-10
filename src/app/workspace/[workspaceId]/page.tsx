@@ -4,11 +4,27 @@ import { useWorkspaceId } from "@/hooks/use-workspace-id";
 import { useGetWorkspace } from "@/app/features/workspaces/api/use-get-workspace";
 import { useGetChannels } from "@/app/features/channels/api/use-get-channels";
 import { useState, useMemo } from "react";
-import { useQuery } from "convex/react";
+import { useQuery, useMutation } from "convex/react";
 import { api } from "../../../../convex/_generated/api";
 import { useSendMessage } from "@/app/features/messages/api/use-send-message";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { Smile } from "lucide-react";
+import { EmojiPicker } from "@/components/emoji-picker";
+import { Id } from "../../../../convex/_generated/dataModel";
+
+const EMOJI_MAP: Record<string, string> = {
+  thumbs_up: "👍",
+  heart: "❤️",
+  smile: "😊",
+  party: "🎉",
+  fire: "🔥",
+  eyes: "👀",
+  "100": "💯",
+  sparkles: "✨",
+  raised_hands: "🙌",
+  clap: "👏",
+};
 
 export default function WorkspaceIdPage() {
   const workspaceId = useWorkspaceId();
@@ -27,11 +43,21 @@ export default function WorkspaceIdPage() {
   // Instead of null, pass undefined to skip the query until we have an ID
   const messages = useQuery(
     api.messages.list,
-    generalChannelId ? { channelId: generalChannelId } : undefined
+    generalChannelId ? { channelId: generalChannelId } : "skip"
   );
 
   const sendMessage = useSendMessage();
   const [text, setText] = useState("");
+
+  const toggleReaction = useMutation(api.messages.toggleReaction);
+
+  const handleReaction = async (messageId: Id<"messages">, emoji: string) => {
+    try {
+      await toggleReaction({ messageId, emoji });
+    } catch (error) {
+      console.error("Error toggling reaction:", error);
+    }
+  };
 
   const handleSend = async () => {
     const cleaned = text.trim();
@@ -68,15 +94,39 @@ export default function WorkspaceIdPage() {
           messages.map((msg) => (
             <div key={msg._id} className="rounded border p-2">
               <div className="text-xs text-gray-500">
-                <strong>{msg.userId}</strong> •{" "}
+                <strong>{msg.userName}</strong> •{" "}
                 {new Date(msg.createdAt).toLocaleString()}
               </div>
-              <div>{msg.text}</div>
+              <div className="mt-1">{msg.text}</div>
+              
+              {/* Reactions */}
+              <div className="mt-2 flex flex-wrap gap-1">
+                {Object.entries(msg.reactions || {}).map(([code, data]) => (
+                  <button
+                    key={code}
+                    onClick={() => handleReaction(msg._id, code)}
+                    className="inline-flex items-center gap-1 px-2 py-0.5 bg-gray-100 rounded hover:bg-gray-200"
+                  >
+                    <span>{EMOJI_MAP[code] || code}</span>
+                    <span className="text-xs text-gray-600">{data.count}</span>
+                  </button>
+                ))}
+                
+                {/* Add reaction button */}
+                <EmojiPicker
+                  onEmojiSelect={(code) => handleReaction(msg._id, code)}
+                  trigger={
+                    <button className="p-1 hover:bg-gray-100 rounded">
+                      <Smile className="h-4 w-4 text-gray-500" />
+                    </button>
+                  }
+                />
+              </div>
             </div>
           ))
         ) : (
           <div className="text-sm text-muted-foreground italic">
-            Be the first to drop a message in “{workspace.name}”!
+            Be the first to drop a message in "{workspace.name}"!
           </div>
         )}
       </div>
