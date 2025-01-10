@@ -105,7 +105,7 @@ This project is a [Next.js](https://nextjs.org/) application integrated with [Co
     │   │   └── page.tsx
     │   ├── signin
     │   │   └── page.tsx
-    │   ├── layout.tsx
+    │   ├── layout.tsx // layout for the workspace
     │   └── page.tsx
     ├── globals.css
     ├── components
