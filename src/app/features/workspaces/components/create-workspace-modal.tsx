@@ -24,40 +24,47 @@ export const CreateWorkspaceModal = () => {
   const handleSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
 
-    mutate({name}, {
-      onSuccess: (id) => {
-        router.push(`/workspace/${id}`);
+    mutate({ name }, {
+      onSuccess: (res: any) => {
+        if (!res?.success) {
+          toast.error(res?.message || "Failed to create workspace");
+          return;
+        }
+        // res.workspaceId is now a string
+        router.push(`/workspace/${res.workspaceId}`);
         handleClose();
         toast.success("Workspace created! 🎉");
       },
-      onError: (error) => {
+      onError: () => {
         toast.error("Failed to create workspace");
       }
-    })
+    });
   };
 
-  return <Dialog open={open} onOpenChange={handleClose}>
-    <DialogContent>
-      <DialogHeader>
-        <DialogTitle>Create a workspace</DialogTitle>
-      </DialogHeader>
-      <form className="space-y-4" onSubmit={handleSubmit}>
-        <Input 
-          value={name}
-          onChange={(e) => setName(e.target.value)}
-          disabled={isPending}
-          required
-          autoFocus
-          minLength={3}
-          placeholder="Workspace name e.g. 'Work', 'Personal', 'Home'"
-          className="h-12"
-        />
-        <DialogFooter className="flex justify-end">
-          <Button type="submit" disabled={isPending}>
-            Create
-          </Button>
-        </DialogFooter>
-      </form>
-    </DialogContent>
-  </Dialog>
-}
+  return (
+    <Dialog open={open} onOpenChange={handleClose}>
+      <DialogContent>
+        <DialogHeader>
+          <DialogTitle>Create a workspace</DialogTitle>
+        </DialogHeader>
+        <form className="space-y-4" onSubmit={handleSubmit}>
+          <Input 
+            value={name}
+            onChange={(e) => setName(e.target.value)}
+            disabled={isPending}
+            required
+            autoFocus
+            minLength={3}
+            placeholder="Workspace name e.g. 'Work', 'Personal', 'Home'"
+            className="h-12"
+          />
+          <DialogFooter className="flex justify-end">
+            <Button type="submit" disabled={isPending}>
+              Create
+            </Button>
+          </DialogFooter>
+        </form>
+      </DialogContent>
+    </Dialog>
+  );
+};

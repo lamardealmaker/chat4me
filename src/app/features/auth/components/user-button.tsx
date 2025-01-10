@@ -46,7 +46,7 @@ export const UserButton = () => {
   const { image, name, email } = data;
 
   const initials = name?.split(" ")
-    .map((word) => word[0])
+    .map((word: string) => word[0])
     .join("")
     .toUpperCase()
     .slice(0, 2);

@@ -9,6 +9,7 @@ import { FaGithub } from "react-icons/fa";
 import { SignInFlow } from "../types";
 import { useAuthActions } from "@convex-dev/auth/react";
 import { useState } from "react";
+import { useRouter } from "next/navigation";
 
 const getErrorMessage = (error: any) => {
   if (error?.message?.includes("password")) {
@@ -31,12 +32,15 @@ export const SignInCard = ({ setState }: SignInCardProps) => {
   const { signIn } = useAuthActions();
   const [isPending, setIsPending] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const router = useRouter();
 
   const handleGithubSignIn = async () => {
     setError(null);
     try {
       setIsPending("github");
       await signIn("github");
+      // Redirect on success:
+      router.push("/dashboard");
     } catch (error) {
       setError("GitHub authentication failed. Please try again.");
     } finally {
@@ -49,6 +53,8 @@ export const SignInCard = ({ setState }: SignInCardProps) => {
     try {
       setIsPending("google");
       await signIn("google");
+      // Redirect on success:
+      router.push("/dashboard");
     } catch (error) {
       setError("Google authentication failed. Please try again.");
     } finally {
@@ -64,6 +70,8 @@ export const SignInCard = ({ setState }: SignInCardProps) => {
       const formData = new FormData(event.currentTarget);
       formData.append("flow", "signIn");
       await signIn("password", formData);
+      // Redirect on success:
+      router.push("/dashboard");
     } catch (error: any) {
       setError(getErrorMessage(error));
     } finally {
@@ -180,4 +188,4 @@ export const SignInCard = ({ setState }: SignInCardProps) => {
       </CardFooter>
     </Card>
   );
-}; 
+};
