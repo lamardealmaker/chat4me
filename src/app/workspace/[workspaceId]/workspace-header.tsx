@@ -12,6 +12,7 @@ import { ChevronDown, ListFilter, Plus, SquarePen } from "lucide-react";
 import { Doc } from "../../../../convex/_generated/dataModel";
 import { PreferencesModal } from "./preferences-modal";
 import { useState } from "react";
+import { InviteModal } from "./invite-modal";
 
 interface WorkspaceHeaderProps {
   workspace: Doc<"workspaces">;
@@ -20,9 +21,17 @@ interface WorkspaceHeaderProps {
 
 export const WorkspaceHeader = ({ workspace, isAdmin }: WorkspaceHeaderProps) => {
   const [preferencesOpen, setPreferencesOpen] = useState(false);
-
+  const [inviteOpen, setInviteOpen] = useState(false);
   return (
     <>
+    <InviteModal 
+      open={inviteOpen}
+      onOpenChange={setInviteOpen}
+      name={workspace.name}
+      joinCode={workspace.joinCode}
+    
+
+    />
     <PreferencesModal open={preferencesOpen} setOpen={setPreferencesOpen} initialValue={workspace.name} />
     <div className="flex items-center justify-between px-4 h-[49px] gap-0.5">
       <DropdownMenu>
@@ -44,7 +53,7 @@ export const WorkspaceHeader = ({ workspace, isAdmin }: WorkspaceHeaderProps) =>
           <DropdownMenuSeparator />
           {isAdmin && (
             <>
-              <DropdownMenuItem className="cursor-pointer">
+              <DropdownMenuItem className="cursor-pointer" onClick={() => setInviteOpen(true)}>
                 <div className="size-9 relative overflow-hidden bg-[#1C2A24]/10 font-semibold text-lg rounded-md flex items-center justify-center mr-2">
                   <Plus className="h-4 w-4" />
                 </div>
