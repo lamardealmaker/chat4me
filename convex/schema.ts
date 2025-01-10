@@ -1,7 +1,7 @@
 import { defineSchema, defineTable } from "convex/server";
 import { authTables } from "@convex-dev/auth/server";
 import { v } from "convex/values";
- 
+
 const schema = defineSchema({
   ...authTables,
   workspaces: defineTable({
@@ -14,15 +14,25 @@ const schema = defineSchema({
     userId: v.id("users"),
     role: v.union(v.literal("admin"), v.literal("member")),
   })
-  .index("by_user_id", ["userId"])
-  .index("by_workspace_id", ["workspaceId"])
-  .index("by_workspace_id_and_user_id", ["workspaceId", "userId"]),
-  channels: defineTable({  
+    .index("by_user_id", ["userId"])
+    .index("by_workspace_id", ["workspaceId"])
+    .index("by_workspace_id_and_user_id", ["workspaceId", "userId"]),
+  channels: defineTable({
     workspaceId: v.id("workspaces"),
     name: v.string(),
     type: v.union(v.literal("public"), v.literal("private")),
+  }).index("by_workspace_id", ["workspaceId"]),
+
+  // NEW MESSAGES TABLE
+  messages: defineTable({
+    channelId: v.id("channels"),
+    userId: v.id("users"),
+    text: v.string(),
+    createdAt: v.number(),
+    parentMessageId: v.optional(v.id("messages")),
   })
-  .index("by_workspace_id", ["workspaceId"]),
+    .index("by_channel_id", ["channelId"])
+    .index("by_user_id", ["userId"]),
 });
- 
+
 export default schema;
