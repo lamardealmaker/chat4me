@@ -1,9 +1,22 @@
-import {Dialog, DialogContent, DialogClose, DialogDescription, DialogHeader, DialogTitle} from "@/components/ui/dialog"
+import {Dialog, DialogContent, DialogClose, DialogDescription, DialogHeader, DialogTitle, DialogFooter} from "@/components/ui/dialog"
 import { Button } from "@/components/ui/button";
-import { Copy, Check } from "lucide-react";
+import { Copy, Check, RefreshCw } from "lucide-react";
 import { useState } from "react";
 import { toast } from "sonner";
 import { useWorkspaceId } from "@/hooks/use-workspace-id";
+import { useNewJoinCode } from "@/app/features/workspaces/api/use-new-join-code";
+import { cn } from "@/lib/utils";
+import {
+    AlertDialog,
+    AlertDialogAction,
+    AlertDialogCancel,
+    AlertDialogContent,
+    AlertDialogDescription,
+    AlertDialogFooter,
+    AlertDialogHeader,
+    AlertDialogTitle,
+    AlertDialogTrigger,
+} from "@/components/ui/alert-dialog";
 
 interface InviteModalProps {
     open: boolean;
@@ -14,7 +27,19 @@ interface InviteModalProps {
 
 export const InviteModal = ({open, onOpenChange, name, joinCode}: InviteModalProps) => {
     const workspaceId = useWorkspaceId();
+    const { mutate, isPending } = useNewJoinCode();
     const [copied, setCopied] = useState(false);
+
+    const handleNewCode = () => {
+        mutate({ id: workspaceId }, {
+            onSuccess: () => {
+                toast.success("New join code generated!");
+            },
+            onError: () => {
+                toast.error("Failed to generate new join code");
+            }
+        });
+    };
 
     const handleCopy = () => {
         const inviteLink = `${window.location.origin}/join/${workspaceId}?joinCode=${joinCode}`;
@@ -28,7 +53,7 @@ export const InviteModal = ({open, onOpenChange, name, joinCode}: InviteModalPro
     };
 
     return (
-        <Dialog open={open} onOpenChange={onOpenChange} >
+        <Dialog open={open} onOpenChange={onOpenChange}>
             <DialogContent>
                 <DialogHeader className="text-center">
                     <DialogTitle>Invite people to {name}</DialogTitle>
@@ -63,6 +88,47 @@ export const InviteModal = ({open, onOpenChange, name, joinCode}: InviteModalPro
                                 </>
                             )}
                         </Button>
+                        <div className="flex w-full gap-x-2">
+                            <AlertDialog>
+                                <AlertDialogTrigger asChild>
+                                    <Button
+                                        variant="outline"
+                                        disabled={isPending}
+                                        className="flex-1"
+                                    >
+                                        <RefreshCw className={cn(
+                                            "h-4 w-4 mr-2",
+                                            isPending && "animate-spin"
+                                        )} />
+                                        Generate New Code
+                                    </Button>
+                                </AlertDialogTrigger>
+                                <AlertDialogContent>
+                                    <AlertDialogHeader>
+                                        <AlertDialogTitle>Generate New Join Code?</AlertDialogTitle>
+                                        <AlertDialogDescription>
+                                            This will invalidate the current join code. Anyone with the old code won't be able to join the workspace.
+                                        </AlertDialogDescription>
+                                    </AlertDialogHeader>
+                                    <AlertDialogFooter>
+                                        <AlertDialogCancel>Cancel</AlertDialogCancel>
+                                        <AlertDialogAction
+                                            onClick={handleNewCode}
+                                            className="bg-black hover:bg-black/90"
+                                        >
+                                            Generate New Code
+                                        </AlertDialogAction>
+                                    </AlertDialogFooter>
+                                </AlertDialogContent>
+                            </AlertDialog>
+                            <Button
+                                onClick={() => onOpenChange(false)}
+                                variant="default"
+                                className="flex-1 bg-black hover:bg-black/90"
+                            >
+                                Close
+                            </Button>
+                        </div>
                     </div>
                 </div>
             </DialogContent>
