@@ -28,8 +28,8 @@ const EMOJI_MAP: Record<string, string> = {
 
 export default function ChannelPage() {
   const params = useParams();
-  const channelId = params.channelId as Id<"channels">;
-  const { data: messages, isLoading } = useGetMessages(channelId);
+  const channelId = params.channelId as string;
+  const messages = useQuery(api.messages.list, { channelId: channelId as Id<"channels"> });
   const sendMessage = useMutation(api.messages.send);
   const toggleReaction = useMutation(api.messages.toggleReaction);
 
@@ -47,7 +47,10 @@ export default function ChannelPage() {
   const handleSend = async () => {
     if (!text) return;
     try {
-      await sendMessage({ channelId, text });
+      await sendMessage({ 
+        channelId: channelId as Id<"channels">, 
+        text 
+      });
       setText("");
     } catch (error) {
       console.error("Error sending message:", error);
@@ -115,7 +118,7 @@ export default function ChannelPage() {
     );
   };
 
-  if (isLoading) {
+  if (messages === undefined) {
     return <div className="p-4 text-emerald-600">Loading messages...</div>;
   }
 

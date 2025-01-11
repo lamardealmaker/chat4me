@@ -185,4 +185,70 @@ export const remove = mutation({
   },
 });
 
+/**
+ * getInfoById - Get public workspace info by ID (for invite links)
+ */
+export const getInfoById = query({
+  args: { id: v.id("workspaces") },
+  handler: async (ctx, args) => {
+    const workspace = await ctx.db.get(args.id);
+    if (!workspace) return null;
+
+    // Return only public info needed for invite page
+    return {
+      _id: workspace._id,
+      name: workspace.name,
+      joinCode: workspace.joinCode,
+    };
+  },
+});
+
+/**
+ * join - Join a workspace using its ID and join code
+ */
+export const join = mutation({
+  args: {
+    id: v.id("workspaces"),
+    code: v.string(),
+  },
+  handler: async (ctx, args) => {
+    const userId = await auth.getUserId(ctx);
+    if (!userId) {
+      return { success: false, message: "Unauthorized", workspaceId: null };
+    }
+
+    // Get the workspace
+    const workspace = await ctx.db.get(args.id);
+    if (!workspace) {
+      return { success: false, message: "Workspace not found", workspaceId: null };
+    }
+
+    // Check if join code matches
+    if (workspace.joinCode !== args.code) {
+      return { success: false, message: "Invalid join code", workspaceId: null };
+    }
+
+    // Check if user is already a member
+    const existingMember = await ctx.db
+      .query("members")
+      .withIndex("by_workspace_id_and_user_id", (q) =>
+        q.eq("workspaceId", args.id).eq("userId", userId)
+      )
+      .first();
+
+    if (existingMember) {
+      return { success: true, message: "Already a member", workspaceId: args.id };
+    }
+
+    // Add user as a member
+    await ctx.db.insert("members", {
+      workspaceId: args.id,
+      userId,
+      role: "member",
+    });
+
+    return { success: true, message: "", workspaceId: args.id };
+  },
+});
+
 // The rest of your existing code remains unchanged...

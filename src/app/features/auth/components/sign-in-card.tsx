@@ -40,7 +40,7 @@ export const SignInCard = ({ setState }: SignInCardProps) => {
       setIsPending("github");
       await signIn("github");
       // Redirect on success:
-      router.push("/dashboard");
+      router.push("/");
     } catch (error) {
       setError("GitHub authentication failed. Please try again.");
     } finally {
@@ -54,7 +54,7 @@ export const SignInCard = ({ setState }: SignInCardProps) => {
       setIsPending("google");
       await signIn("google");
       // Redirect on success:
-      router.push("/dashboard");
+      router.push("/");
     } catch (error) {
       setError("Google authentication failed. Please try again.");
     } finally {
@@ -71,7 +71,7 @@ export const SignInCard = ({ setState }: SignInCardProps) => {
       formData.append("flow", "signIn");
       await signIn("password", formData);
       // Redirect on success:
-      router.push("/dashboard");
+      router.push("/");
     } catch (error: any) {
       setError(getErrorMessage(error));
     } finally {

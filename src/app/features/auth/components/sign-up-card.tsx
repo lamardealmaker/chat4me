@@ -9,6 +9,7 @@ import { FaGithub } from "react-icons/fa";
 import { SignInFlow } from "../types";
 import { useAuthActions } from "@convex-dev/auth/react";
 import { useState } from "react";
+import { useRouter } from "next/navigation";
 
 const getErrorMessage = (error: any) => {
   if (error?.message?.includes("email")) {
@@ -29,6 +30,7 @@ interface SignUpCardProps {
 
 export const SignUpCard = ({ setState }: SignUpCardProps) => {
   const { signIn } = useAuthActions();
+  const router = useRouter();
   const [isPending, setIsPending] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [formData, setFormData] = useState({
@@ -83,14 +85,8 @@ export const SignUpCard = ({ setState }: SignUpCardProps) => {
       data.append("flow", "signUp");
       data.append("name", formData.name);
 
-      console.log('Submitting form data:', {
-        email: formData.email,
-        name: formData.name,
-        flow: "signUp"
-      });
-
       await signIn("password", data);
-      console.log('Sign up successful');
+      router.push("/");
     } catch (error: any) {
       console.error('Sign up error:', error);
       setError(getErrorMessage(error));
@@ -104,6 +100,7 @@ export const SignUpCard = ({ setState }: SignUpCardProps) => {
     try {
       setIsPending("github");
       await signIn("github");
+      router.push("/");
     } catch (error) {
       setError("GitHub authentication failed. Please try again.");
     } finally {
@@ -116,6 +113,7 @@ export const SignUpCard = ({ setState }: SignUpCardProps) => {
     try {
       setIsPending("google");
       await signIn("google");
+      router.push("/");
     } catch (error) {
       setError("Google authentication failed. Please try again.");
     } finally {
