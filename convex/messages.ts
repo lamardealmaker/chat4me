@@ -44,10 +44,36 @@ export const list = query({
   handler: async (ctx, args) => {
     const messages = await ctx.db
       .query("messages")
-      .withIndex("by_channel", (q) => q.eq("channelId", args.channelId))
+      .withIndex("by_channel_id", (q) => q.eq("channelId", args.channelId))
       .collect();
 
-    return messages;
+    const results = [];
+    for (const msg of messages) {
+      const userDoc = await ctx.db.get(msg.userId);
+      
+      const reactions = await ctx.db
+        .query("reactions")
+        .withIndex("by_message_id", (q) => q.eq("messageId", msg._id))
+        .collect();
+
+      const reactionGroups = reactions.reduce((acc, reaction) => {
+        const code = encodeURIComponent(reaction.emoji);
+        if (!acc[code]) {
+          acc[code] = { count: 0, users: [], emoji: reaction.emoji };
+        }
+        acc[code].count++;
+        acc[code].users.push(reaction.userId);
+        return acc;
+      }, {} as Record<string, { count: number; users: string[]; emoji: string }>);
+
+      results.push({
+        ...msg,
+        userName: userDoc?.name || "Unknown",
+        reactions: reactionGroups,
+      });
+    }
+
+    return results;
   },
 });
 

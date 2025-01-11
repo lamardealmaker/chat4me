@@ -33,16 +33,12 @@ export const create = mutation({
       lastSeen: Date.now(),
     });
 
-    // Make sure all channels get these properties
-    const channelDefaults = {
-      name: args.name,
-      workspaceId: workspaceId,
-      description: args.description || "",
-      isPrivate: false,
-      // Add any other properties that "general" has
-    };
-
-    await ctx.db.insert("channels", channelDefaults);
+    // Create default general channel
+    await ctx.db.insert("channels", {
+      name: "general",
+      workspaceId,
+      type: "public",
+    });
 
     return {
       success: true,
