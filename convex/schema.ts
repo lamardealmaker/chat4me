@@ -5,6 +5,21 @@ import { v } from "convex/values";
 const schema = defineSchema({
   ...authTables,
 
+  userPresence: defineTable({
+    userId: v.id("users"),
+    workspaceId: v.id("workspaces"),
+    status: v.union(
+      v.literal("online"),
+      v.literal("offline"),
+      v.literal("away")
+    ),
+    customStatus: v.optional(v.string()),
+    lastSeen: v.number(),
+  })
+    .index("by_workspace", ["workspaceId"])
+    .index("by_user", ["userId"])
+    .index("by_workspace_and_user", ["workspaceId", "userId"]),
+
   workspaces: defineTable({
     name: v.string(),
     userId: v.id("users"),

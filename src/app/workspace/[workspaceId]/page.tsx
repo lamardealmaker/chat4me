@@ -12,6 +12,7 @@ import { Input } from "@/components/ui/input";
 import { Smile } from "lucide-react";
 import { EmojiPicker } from "@/components/emoji-picker";
 import { Id } from "../../../../convex/_generated/dataModel";
+import { useAuthGuard } from "@/app/features/auth/use-auth-guard";
 
 const EMOJI_MAP: Record<string, string> = {
   thumbs_up: "👍",
@@ -27,6 +28,7 @@ const EMOJI_MAP: Record<string, string> = {
 };
 
 export default function WorkspaceIdPage() {
+  const { isAuthenticated, isLoading } = useAuthGuard();
   const workspaceId = useWorkspaceId();
 
   // Load workspace & channels
@@ -69,6 +71,15 @@ export default function WorkspaceIdPage() {
       console.error("Error sending message:", error);
     }
   };
+
+  // Return early if not authenticated
+  if (isLoading) {
+    return <div>Loading...</div>;
+  }
+  
+  if (!isAuthenticated) {
+    return null; // The useAuthGuard will redirect
+  }
 
   if (isWorkspaceLoading || isChannelsLoading) {
     return <div>Loading workspace...</div>;

@@ -25,12 +25,24 @@ export const create = mutation({
       role: "admin",
     });
 
-    // Use "General" channel name
-    await ctx.db.insert("channels", {
+    // Initialize presence for admin
+    await ctx.db.insert("userPresence", {
+      userId,
       workspaceId,
-      name: "General",
-      type: "public",
+      status: "online",
+      lastSeen: Date.now(),
     });
+
+    // Make sure all channels get these properties
+    const channelDefaults = {
+      name: args.name,
+      workspaceId: workspaceId,
+      description: args.description || "",
+      isPrivate: false,
+      // Add any other properties that "general" has
+    };
+
+    await ctx.db.insert("channels", channelDefaults);
 
     return {
       success: true,
@@ -245,6 +257,14 @@ export const join = mutation({
       workspaceId: args.id,
       userId,
       role: "member",
+    });
+
+    // Initialize presence
+    await ctx.db.insert("userPresence", {
+      userId,
+      workspaceId: args.id,
+      status: "online",
+      lastSeen: Date.now(),
     });
 
     return { success: true, message: "", workspaceId: args.id };

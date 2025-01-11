@@ -8,6 +8,8 @@ import { Button } from "@/components/ui/button";
 import { Id } from "../../../../../../convex/_generated/dataModel";
 import { EmojiPicker } from "@/components/emoji-picker";
 import { Smile } from "lucide-react";
+import { MessagePresence } from "@/app/features/presence/components/message-presence";
+import { useParams } from "next/navigation";
 
 const EMOJI_MAP: Record<string, string> = {
   thumbs_up: "👍",
@@ -22,10 +24,6 @@ const EMOJI_MAP: Record<string, string> = {
   clap: "👏",
 };
 
-/**
- * ThreadPanel: Display parent message plus threaded replies.
- * The parent message is the "thread root," so we query all replies where parentMessageId = parent's _id
- */
 export function ThreadPanel({
   parentMessageId,
   onClose,
@@ -33,6 +31,8 @@ export function ThreadPanel({
   parentMessageId: Id<"messages">;
   onClose: () => void;
 }) {
+  const params = useParams();
+  const workspaceId = params.workspaceId as Id<"workspaces">;
   const [text, setText] = useState("");
   const parentMessage = useQuery(api.messages.get, {
     messageId: parentMessageId,
@@ -69,10 +69,17 @@ export function ThreadPanel({
   const MessageWithReactions = ({ message }: { message: any }) => (
     <div className="border border-emerald-100 p-3 rounded-lg hover:bg-emerald-50/50 transition bg-white shadow-sm">
       <div className="flex items-center gap-2 mb-2">
-        <strong className="font-medium text-emerald-900">{message.userName}</strong>
-        <span className="text-xs text-emerald-500">
-          {new Date(message.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
-        </span>
+        <div className="flex items-center gap-2">
+          <strong className="font-medium text-emerald-900">{message.userName}</strong>
+          <MessagePresence 
+            workspaceId={workspaceId} 
+            userId={message.userId} 
+            className="h-2 w-2 shrink-0" 
+          />
+          <span className="text-xs text-emerald-500">
+            {new Date(message.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+          </span>
+        </div>
       </div>
       <div className="text-sm text-emerald-900 leading-relaxed">{message.text}</div>
       

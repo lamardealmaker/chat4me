@@ -12,6 +12,7 @@ import { api } from "../../../../../../convex/_generated/api";
 import { EmojiPicker } from "@/components/emoji-picker";
 import { MessageSquare, Smile } from "lucide-react";
 import { Id } from "../../../../../../convex/_generated/dataModel";
+import { MessagePresence } from "@/app/features/presence/components/message-presence";
 
 const EMOJI_MAP: Record<string, string> = {
   thumbs_up: "👍",
@@ -59,12 +60,19 @@ export default function ChannelPage() {
 
   const Message = ({ msg }: { msg: any }) => {
     const replyCount = useQuery(api.messages.getReplyCount, { messageId: msg._id }) ?? 0;
+    const params = useParams();
+    const workspaceId = params.workspaceId as Id<"workspaces">;
     
     return (
       <div className="border border-emerald-100 p-3 rounded-lg hover:bg-emerald-50/50 transition bg-white shadow-sm">
         <div className="text-sm text-emerald-800 flex justify-between items-center">
           <div className="flex items-center gap-2">
             <strong className="font-medium text-emerald-900">{msg.userName}</strong>
+            <MessagePresence 
+              workspaceId={workspaceId} 
+              userId={msg.userId} 
+              className="h-2 w-2 shrink-0" 
+            />
             <span className="text-xs text-emerald-500">
               {new Date(msg.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
             </span>

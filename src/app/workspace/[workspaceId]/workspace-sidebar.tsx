@@ -6,14 +6,15 @@ import { useCurrentMember } from "@/app/features/members/api/use-current-member"
 import { useGetWorkspace } from "@/app/features/workspaces/api/use-get-workspace";
 import { useGetChannels } from "@/app/features/channels/api/use-get-channels";
 import { useGetMembers } from "@/app/features/members/api/use-get-members";
-import { Hash, Plus, Loader, AlertTriangle, MessageSquareText, SendHorizonal } from "lucide-react";
+import { Hash, Plus, Loader, AlertTriangle, MessageSquareText, SendHorizonal, X } from "lucide-react";
 import { WorkspaceSection } from "./workspace-section";
 import { SidebarItem } from "./sidebar-item";
 import { UserItem } from "./user-item";
 import { WorkspaceHeader } from "./workspace-header";
 import { useState } from "react";
-import { useMutation } from "convex/react";
+import { useMutation, useQuery } from "convex/react";
 import { api } from "../../../../convex/_generated/api";
+import { WorkspacePresence } from "@/app/features/presence/components/workspace-presence";
 
 export const WorkspacesSidebar = () => {
   const workspaceId = useWorkspaceId();
@@ -114,6 +115,8 @@ export const WorkspacesSidebar = () => {
               ))}
             </WorkspaceSection>
           </div>
+
+          <WorkspacePresence workspaceId={workspaceId} />
         </div>
       </div>
     </div>

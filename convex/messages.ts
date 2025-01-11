@@ -40,61 +40,14 @@ export const send = mutation({
  * list() - fetch main channel messages, including user name
  */
 export const list = query({
-  args: { channelId: v.optional(v.id("channels")) },
-  handler: async (ctx, { channelId }) => {
-    const userId = await auth.getUserId(ctx);
-    if (!userId || !channelId) return [];
-
-    const channel = await ctx.db.get(channelId);
-    if (!channel) return [];
-
-    // Check membership
-    const member = await ctx.db
-      .query("members")
-      .withIndex("by_workspace_id_and_user_id", (q) =>
-        q.eq("workspaceId", channel.workspaceId).eq("userId", userId)
-      )
-      .first();
-    if (!member) return [];
-
-    // Fetch messages - only top-level messages (no parentMessageId)
+  args: { channelId: v.id("channels") },
+  handler: async (ctx, args) => {
     const messages = await ctx.db
       .query("messages")
-      .withIndex("by_channel_id", (q) => q.eq("channelId", channelId))
-      .filter((q) => q.eq(q.field("parentMessageId"), undefined))
-      .order("asc")
+      .withIndex("by_channel", (q) => q.eq("channelId", args.channelId))
       .collect();
 
-    // Populate user names and reactions
-    const results = [];
-    for (const msg of messages) {
-      const user = await ctx.db.get(msg.userId);
-      
-      // Get reactions for this message
-      const reactions = await ctx.db
-        .query("reactions")
-        .withIndex("by_message_id", (q) => q.eq("messageId", msg._id))
-        .collect();
-
-      // Group reactions by emoji code
-      const reactionGroups = reactions.reduce((acc, reaction) => {
-        const code = encodeURIComponent(reaction.emoji);
-        if (!acc[code]) {
-          acc[code] = { count: 0, users: [], emoji: reaction.emoji };
-        }
-        acc[code].count++;
-        acc[code].users.push(reaction.userId);
-        return acc;
-      }, {} as Record<string, { count: number; users: string[]; emoji: string }>);
-
-      results.push({
-        ...msg,
-        userName: user?.name || "Unknown User",
-        reactions: reactionGroups,
-      });
-    }
-
-    return results;
+    return messages;
   },
 });
 
