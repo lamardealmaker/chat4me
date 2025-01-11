@@ -22,10 +22,10 @@ export const WorkspaceSwitcher = () => {
 
   const [_isOpen, setIsOpen] = useCreateWorkspaceModal();
 
-  const { data: workspace, isLoading: isWorkspaceLoading } = useGetWorkspace({ id: workspaceId });
+  const { data: currentWorkspace, isLoading: isWorkspaceLoading } = useGetWorkspace({ id: workspaceId });
   const { data: workspaces, isLoading: isWorkspacesLoading } = useGetWorkspaces();
 
-  const filteredWorkspaces = workspaces?.filter((w) => w._id !== workspaceId);
+  const filteredWorkspaces = workspaces?.filter((w) => w?._id !== workspaceId) ?? [];
 
   return (
     <DropdownMenu>
@@ -36,26 +36,33 @@ export const WorkspaceSwitcher = () => {
           {isWorkspaceLoading ? (
             <Loader className="size-5 animate-spin shrink-0" />
           ) : (
-            workspace?.name?.charAt(0).toUpperCase() || "W"
+            currentWorkspace?.name?.charAt(0).toUpperCase() || "W"
           )}
         </Button>
       </DropdownMenuTrigger>
       <DropdownMenuContent side="bottom" align="start" className="w-64">
         <DropdownMenuLabel>Workspaces</DropdownMenuLabel>
         <DropdownMenuItem onClick={() => router.push(`/workspace/${workspaceId}`)} className="cursor-pointer flex-col justify-start items-start capitalize">
-          {workspace?.name}
+          {currentWorkspace?.name}
           <span className="text-xs text-muted-foreground">
             Current workspace
           </span>
         </DropdownMenuItem>
-        {filteredWorkspaces?.map((workspace) => (
-          <DropdownMenuItem key={workspace._id} onClick={() => router.push(`/workspace/${workspace._id}`)} className="cursor-pointer flex items-center">
-            <div className="size-9 relative overflow-hidden bg-[#1C2A24] text-white font-semibold text-lg rounded-md flex items-center justify-center mr-2">
-              {workspace.name.charAt(0).toUpperCase()}
-            </div>
-            <span className="capitalize truncate max-w-[150px]">{workspace.name}</span>
-          </DropdownMenuItem>
-        ))}
+        {filteredWorkspaces.map((ws) => {
+          if (!ws) return null;
+          return (
+            <DropdownMenuItem 
+              key={ws._id} 
+              onClick={() => router.push(`/workspace/${ws._id}`)} 
+              className="cursor-pointer flex items-center"
+            >
+              <div className="size-9 relative overflow-hidden bg-[#1C2A24] text-white font-semibold text-lg rounded-md flex items-center justify-center mr-2">
+                {ws.name.charAt(0).toUpperCase()}
+              </div>
+              <span className="capitalize truncate max-w-[150px]">{ws.name}</span>
+            </DropdownMenuItem>
+          );
+        })}
         <DropdownMenuSeparator />
         <DropdownMenuItem onClick={() => setIsOpen(true)} className="cursor-pointer">
           <div className="size-9 relative overflow-hidden bg-[#1C2A24]/10 font-semibold text-lg rounded-md flex items-center justify-center mr-2">

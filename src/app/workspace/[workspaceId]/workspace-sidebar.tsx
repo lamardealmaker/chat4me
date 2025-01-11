@@ -53,9 +53,15 @@ export const WorkspacesSidebar = () => {
   }
 
   // Example function to pick a user from the members list and create a DM
-  const handleCreateDM = async (otherUserId: string) => {
+  const handleCreateDM = async (otherMemberId: string) => {
     try {
-      await createDM({ workspaceId, userIds: [otherUserId, currentMember[0]._id] });
+      const otherMember = members?.find(m => m._id === otherMemberId);
+      if (!otherMember?.user?._id || !currentMember.user?._id) return;
+      
+      await createDM({ 
+        workspaceId, 
+        userIds: [otherMember.user._id, currentMember.user._id] 
+      });
       console.log("DM created!");
       // Refresh or handle channel load
     } catch (error) {
@@ -68,7 +74,7 @@ export const WorkspacesSidebar = () => {
       <div className="p-3">
         <WorkspaceHeader
           workspace={workspace}
-          isAdmin={currentMember[0]?.role === "admin"}
+          isAdmin={currentMember.role === "admin"}
         />
 
         <div className="space-y-4 mt-4">
@@ -80,7 +86,7 @@ export const WorkspacesSidebar = () => {
 
             <WorkspaceSection
               label="Channels"
-              hint={currentMember[0]?.role === "admin" ? "+" : ""}
+              hint={currentMember.role === "admin" ? "+" : ""}
               onNew={() => setOpen(true)}
             >
               {channels
@@ -103,7 +109,7 @@ export const WorkspacesSidebar = () => {
                     label={member.user?.name}
                     image={member.user?.image}
                   />
-                  {member._id !== currentMember[0]._id && (
+                  {member._id !== currentMember._id && (
                     <button
                       className="ml-auto text-xs hover:underline"
                       onClick={() => handleCreateDM(member._id)}

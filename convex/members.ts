@@ -65,26 +65,15 @@ export const current = query({
       return null;
     }
 
-    const members = await ctx.db
-      .query("members")
-      .withIndex("by_workspace_id", (q) => 
-        q.eq("workspaceId", args.workspaceId)
-      )
-      .collect();
-
-    const users = [];
-
-    for (const member of members) {
-      const user = await ctx.db.get(member.userId);
-      if (user) {
-        users.push({
-          ...user,
-          role: member.role
-        });
-      }
+    const user = await ctx.db.get(member.userId);
+    if (!user) {
+      return null;
     }
 
-    return users;
+    return {
+      ...member,
+      user
+    };
   },
 });
 
