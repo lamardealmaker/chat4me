@@ -12,39 +12,45 @@ export const updatePresence = mutation({
   },
   handler: async (ctx, { workspaceId, status, customStatus }) => {
     const userId = await auth.getUserId(ctx);
-    if (!userId) throw new Error("Unauthorized");
+    // If no user ID, just return silently
+    if (!userId) return;
 
-    // Verify user is a member of the workspace
+    // Try to get member status - if not a member, just return silently
     const member = await ctx.db
       .query("members")
       .withIndex("by_workspace_id_and_user_id", (q) =>
         q.eq("workspaceId", workspaceId).eq("userId", userId)
       )
       .first();
-    if (!member) throw new Error("Not a member of this workspace");
+    if (!member) return;
 
-    // Update or create presence record
-    const existing = await ctx.db
-      .query("userPresence")
-      .withIndex("by_workspace_and_user", (q) =>
-        q.eq("workspaceId", workspaceId).eq("userId", userId)
-      )
-      .first();
+    // Try to update or create presence record
+    try {
+      const existing = await ctx.db
+        .query("userPresence")
+        .withIndex("by_workspace_and_user", (q) =>
+          q.eq("workspaceId", workspaceId).eq("userId", userId)
+        )
+        .first();
 
-    if (existing) {
-      await ctx.db.patch(existing._id, {
-        status,
-        customStatus,
-        lastSeen: Date.now(),
-      });
-    } else {
-      await ctx.db.insert("userPresence", {
-        userId,
-        workspaceId,
-        status,
-        customStatus,
-        lastSeen: Date.now(),
-      });
+      if (existing) {
+        await ctx.db.patch(existing._id, {
+          status,
+          customStatus,
+          lastSeen: Date.now(),
+        });
+      } else {
+        await ctx.db.insert("userPresence", {
+          userId,
+          workspaceId,
+          status,
+          customStatus,
+          lastSeen: Date.now(),
+        });
+      }
+    } catch {
+      // Silently handle any DB operation failures
+      return;
     }
   },
 });

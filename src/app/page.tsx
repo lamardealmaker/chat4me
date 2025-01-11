@@ -34,7 +34,7 @@ export default function Home() {
 
   return (
     <div className="min-h-screen flex flex-col items-center justify-center gap-4">
-      <UserButton />
+      {/* <UserButton />
       <h1 className="text-2xl font-bold">Logged in</h1>
       {isLoading && <p>Loading workspaces...</p>}
       {data?.map((workspace) => (
@@ -47,7 +47,7 @@ export default function Home() {
         onClick={handleSignOut}
       >
         Sign Out
-      </Button>
+      </Button> */}
     </div>
   );
 }
