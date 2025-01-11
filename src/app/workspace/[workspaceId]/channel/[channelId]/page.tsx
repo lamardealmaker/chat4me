@@ -1,7 +1,7 @@
 "use client";
 
 import { useParams } from "next/navigation";
-import { useState } from "react";
+import { useState, useRef, useEffect } from "react";
 import { useGetMessages } from "@/app/features/messages/api/use-get-messages";
 import { useSendMessage } from "@/app/features/messages/api/use-send-message";
 import { Button } from "@/components/ui/button";
@@ -10,9 +10,13 @@ import { ThreadPanel } from "./thread-panel";
 import { useQuery, useMutation } from "convex/react";
 import { api } from "../../../../../../convex/_generated/api";
 import { EmojiPicker } from "@/components/emoji-picker";
-import { MessageSquare, Smile } from "lucide-react";
+import { MessageSquare, Users, UserPlus, Smile } from "lucide-react";
 import { Id } from "../../../../../../convex/_generated/dataModel";
 import { MessagePresence } from "@/app/features/presence/components/message-presence";
+import { usePresence } from "@/app/features/presence/hooks/use-presence";
+import { useGetMembers } from "@/app/features/members/api/use-get-members";
+import { useGetWorkspace } from "@/app/features/workspaces/api/use-get-workspace";
+import { InviteModal } from "../../invite-modal";
 
 const EMOJI_MAP: Record<string, string> = {
   thumbs_up: "👍",
@@ -30,12 +34,37 @@ const EMOJI_MAP: Record<string, string> = {
 export default function ChannelPage() {
   const params = useParams();
   const channelId = params.channelId as string;
+  const workspaceId = params.workspaceId as Id<"workspaces">;
+  const messagesEndRef = useRef<HTMLDivElement>(null);
+  const [isFirstLoad, setIsFirstLoad] = useState(true);
+  const [inviteModalOpen, setInviteModalOpen] = useState(false);
+  
+  // Initialize presence
+  usePresence(workspaceId);
+
+  const { data: workspace } = useGetWorkspace({ id: workspaceId });
+  const { data: members } = useGetMembers({ workspaceId });
   const messages = useQuery(api.messages.list, { channelId: channelId as Id<"channels"> });
   const sendMessage = useMutation(api.messages.send);
   const toggleReaction = useMutation(api.messages.toggleReaction);
 
   const [text, setText] = useState("");
   const [selectedThread, setSelectedThread] = useState<Id<"messages"> | null>(null);
+
+  // Initial scroll to bottom without animation
+  useEffect(() => {
+    if (messages && isFirstLoad) {
+      messagesEndRef.current?.scrollIntoView();
+      setIsFirstLoad(false);
+    }
+  }, [messages, isFirstLoad]);
+
+  // Smooth scroll to bottom for new messages
+  useEffect(() => {
+    if (!isFirstLoad && messages) {
+      messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
+    }
+  }, [messages, isFirstLoad]);
 
   const handleReaction = async (messageId: Id<"messages">, emoji: string) => {
     try {
@@ -126,9 +155,46 @@ export default function ChannelPage() {
     );
   };
 
+  // Show empty state if only one member (admin)
+  if (members && members.length <= 1) {
+    return (
+      <>
+        <InviteModal 
+          open={inviteModalOpen}
+          onOpenChange={setInviteModalOpen}
+          name={workspace?.name || ""}
+          joinCode={workspace?.joinCode || ""}
+        />
+        <div className="flex flex-col items-center justify-center h-full bg-emerald-50/30">
+          <div className="flex flex-col items-center max-w-md text-center p-8 bg-white rounded-lg shadow-sm">
+            <div className="p-3 bg-emerald-100 rounded-full mb-4">
+              <Users className="h-8 w-8 text-emerald-600" />
+            </div>
+            <h2 className="text-2xl font-semibold text-emerald-900 mb-2">
+              Invite Team Members
+            </h2>
+            <p className="text-emerald-600 mb-6">
+              This channel is looking a bit empty. Invite your teammates to join the conversation!
+            </p>
+            <Button
+              onClick={() => setInviteModalOpen(true)}
+              className="bg-emerald-600 hover:bg-emerald-700 text-white"
+            >
+              <UserPlus className="mr-2 h-4 w-4" />
+              Invite People
+            </Button>
+          </div>
+        </div>
+      </>
+    );
+  }
+
   if (messages === undefined) {
     return <div className="p-4 text-emerald-600">Loading messages...</div>;
   }
+
+  // Sort messages by creation time, newest first
+  const sortedMessages = [...messages].sort((a, b) => a.createdAt - b.createdAt);
 
   return (
     <div className="flex h-full">
@@ -136,15 +202,17 @@ export default function ChannelPage() {
       <div className="flex flex-col flex-1 relative bg-emerald-50/30">
         {/* Messages list */}
         <div className="flex-1 overflow-y-auto p-4 space-y-3">
-          {messages?.length === 0 ? (
+          {sortedMessages?.length === 0 ? (
             <div className="text-sm text-emerald-600 italic">
               No messages yet. Start the conversation!
             </div>
           ) : (
-            messages?.map((msg) => (
+            sortedMessages?.map((msg) => (
               <Message key={msg._id} msg={msg} />
             ))
           )}
+          {/* Invisible div for scrolling to bottom */}
+          <div ref={messagesEndRef} />
         </div>
 
         {/* Fixed input at bottom */}

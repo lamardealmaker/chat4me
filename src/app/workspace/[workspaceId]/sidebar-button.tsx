@@ -9,15 +9,20 @@ interface SidebarButtonProps {
   icon: LucideIcon | IconType;
   label: string;
   isActive?: boolean;
+  onClick?: () => void;
 }
 
 export const SidebarButton = ({
   icon: Icon,
   label,
   isActive,
+  onClick,
 }: SidebarButtonProps) => {
   return (
-    <div className="flex flex-col items-center justify-center gap-y-0.5 cursor-pointer group">
+    <div 
+      className="flex flex-col items-center justify-center gap-y-0.5 cursor-pointer group"
+      onClick={onClick}
+    >
       <Button
         variant="transparent"
         className={cn(

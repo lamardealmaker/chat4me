@@ -17,7 +17,7 @@ export function WorkspaceSection({ label, children, hint, onNew, className }: Wo
   return (
     <div className={cn("space-y-2", className)}>
       <div className="flex items-center justify-between">
-        <span className="text-xs font-semibold uppercase tracking-wider text-zinc-400">
+        <span className="text-xs font-bold uppercase tracking-wider text-white">
           {label}
         </span>
         {hint && onNew && (

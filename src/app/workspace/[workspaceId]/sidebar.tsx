@@ -7,7 +7,10 @@ import { UserButton } from "@/app/features/auth/components/user-button";
 import { WorkspaceSwitcher } from "./workspace-switcher";
 import { SidebarButton } from "./sidebar-button";
 import { Hash, Settings, File, Home, MessagesSquare, MoreHorizontal } from "lucide-react";
-import { usePathname } from "next/navigation";
+import { usePathname, useRouter } from "next/navigation";
+import { useQuery } from "convex/react";
+import { api } from "../../../../convex/_generated/api";
+import { Id } from "../../../../convex/_generated/dataModel";
 
 interface ItemProps {
   label: string;
@@ -60,6 +63,26 @@ export const Sidebar = () => {
   const workspaceId = useWorkspaceId();
   const { data: workspace } = useGetWorkspace({ id: workspaceId });
   const pathname = usePathname();
+  const router = useRouter();
+
+  // Get latest DM conversation
+  const conversations = useQuery(api.directMessages.listConversations, {
+    workspaceId: workspaceId as Id<"workspaces">,
+  });
+
+  const handleHomeClick = () => {
+    router.push(`/workspace/${workspaceId}`);
+  };
+
+  const handleDMClick = () => {
+    if (conversations && conversations.length > 0) {
+      // Navigate to the most recent conversation
+      router.push(`/workspace/${workspaceId}/messages/${conversations[0].otherUser._id}`);
+    } else {
+      // Show the empty state page
+      router.push(`/workspace/${workspaceId}/messages`);
+    }
+  };
 
   return (
     <aside 
@@ -67,10 +90,20 @@ export const Sidebar = () => {
       style={{ backgroundColor: "#014421" }}
     >
         <WorkspaceSwitcher />
-        <SidebarButton icon={Home} label="Home" isActive={pathname.includes("workspace")} /> 
-        <SidebarButton icon={MessagesSquare} label="DMs" isActive={pathname.includes("dm")} />
-        <SidebarButton icon={File} label="Files" isActive={pathname.includes("files")} />
-        <SidebarButton icon={MoreHorizontal} label="Settings" isActive={pathname.includes("settings")} />
+        <SidebarButton 
+          icon={Home} 
+          label="Home" 
+          isActive={pathname === `/workspace/${workspaceId}` || pathname.includes("/channel/")} 
+          onClick={handleHomeClick}
+        /> 
+        <SidebarButton 
+          icon={MessagesSquare} 
+          label="DMs" 
+          isActive={pathname.includes("/messages/")}
+          onClick={handleDMClick}
+        /> 
+        <SidebarButton icon={File} label="Files" isActive={pathname.includes("/files/")} />
+        <SidebarButton icon={MoreHorizontal} label="Settings" isActive={pathname.includes("/settings/")} />
         <div className="flex flex-col items-center justify-center mt-auto">
           <UserButton />
         </div>

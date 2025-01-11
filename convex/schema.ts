@@ -65,6 +65,27 @@ const schema = defineSchema({
   })
     .index("by_message_id", ["messageId"])
     .index("by_message_and_user", ["messageId", "userId"]),
+
+  // New table for DM conversations
+  directMessages: defineTable({
+    senderId: v.id("users"),
+    recipientId: v.id("users"),
+    workspaceId: v.id("workspaces"),
+    content: v.string(),
+    createdAt: v.number(),
+    deleted: v.optional(v.boolean()), // For message deletion
+  }).index("by_workspace_participants", ["workspaceId", "senderId", "recipientId"])
+    .index("by_conversation", ["senderId", "recipientId"])
+    .index("by_workspace", ["workspaceId"]),
+
+  // Table to track DM conversations (for sidebar)
+  dmConversations: defineTable({
+    workspaceId: v.id("workspaces"),
+    participant1: v.id("users"),
+    participant2: v.id("users"),
+    lastMessageAt: v.number(),
+  }).index("by_workspace_user", ["workspaceId", "participant1"])
+    .index("by_participants", ["participant1", "participant2"])
 });
 
 export default schema;

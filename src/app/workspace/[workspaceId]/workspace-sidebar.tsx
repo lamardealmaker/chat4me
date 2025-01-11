@@ -15,14 +15,25 @@ import { useState } from "react";
 import { useMutation, useQuery } from "convex/react";
 import { api } from "../../../../convex/_generated/api";
 import { WorkspacePresence } from "@/app/features/presence/components/workspace-presence";
+import { Id } from "../../../../convex/_generated/dataModel";
+import { Button } from "@/components/ui/button";
+import { useRouter, usePathname } from "next/navigation";
+
+// Update conversation interface
+interface Conversation {
+  _id: Id<"dmConversations">;
+  otherUser: {
+    _id: Id<"users">;
+    name: string;
+    image?: string;
+  };
+}
 
 export const WorkspacesSidebar = () => {
+  const router = useRouter();
+  const pathname = usePathname();
   const workspaceId = useWorkspaceId();
   const [_open, setOpen] = useCreateChannelModal();
-
-  // DM creation
-  const createDM = useMutation(api.channels.createDM);
-  const [dmUserId, setDmUserId] = useState<string | null>(null);
 
   const { data: currentMember, isLoading: isCurrentMemberLoading } =
     useCurrentMember({ workspaceId });
@@ -32,6 +43,27 @@ export const WorkspacesSidebar = () => {
     useGetChannels({ workspaceId });
   const { data: members, isLoading: isMembersLoading } =
     useGetMembers({ workspaceId });
+
+  const conversations = useQuery(api.directMessages.listConversations, {
+    workspaceId: workspaceId as Id<"workspaces">,
+  }) as Conversation[] | undefined;
+
+  const sendMessage = useMutation(api.directMessages.send);
+
+  const handleStartDM = async (memberId: Id<"users">) => {
+    try {
+      // Create conversation with empty message
+      await sendMessage({
+        recipientId: memberId,
+        workspaceId: workspaceId as Id<"workspaces">,
+        content: "",
+      });
+      // Then navigate
+      router.push(`/workspace/${workspaceId}/messages/${memberId}`);
+    } catch (error) {
+      console.error("Failed to start DM:", error);
+    }
+  };
 
   if (isCurrentMemberLoading || isWorkspaceLoading) {
     return (
@@ -52,23 +84,6 @@ export const WorkspacesSidebar = () => {
     );
   }
 
-  // Example function to pick a user from the members list and create a DM
-  const handleCreateDM = async (otherMemberId: string) => {
-    try {
-      const otherMember = members?.find(m => m._id === otherMemberId);
-      if (!otherMember?.user?._id || !currentMember.user?._id) return;
-      
-      await createDM({ 
-        workspaceId, 
-        userIds: [otherMember.user._id, currentMember.user._id] 
-      });
-      console.log("DM created!");
-      // Refresh or handle channel load
-    } catch (error) {
-      console.error("Failed to create DM:", error);
-    }
-  };
-
   return (
     <div className="flex flex-col h-full text-white">
       <div className="p-3">
@@ -77,11 +92,13 @@ export const WorkspacesSidebar = () => {
           isAdmin={currentMember.role === "admin"}
         />
 
-        <div className="space-y-4 mt-4">
-          <div>
+        <div className="space-y-8 mt-6">
+          <div className="space-y-6">
             <div className="space-y-1">
-              <SidebarItem label="Threads" icon={MessageSquareText} id="threads" />
-              <SidebarItem label="Drafts & Sent" icon={SendHorizonal} id="drafts" />
+              {/* TODO: Implement threads */}
+              {/* <SidebarItem label="Threads" icon={MessageSquareText} id="threads" /> */}
+              {/* TODO: Implement drafts */}
+              {/* <SidebarItem label="Drafts & Sent" icon={SendHorizonal} id="drafts" /> */}
             </div>
 
             <WorkspaceSection
@@ -97,28 +114,37 @@ export const WorkspacesSidebar = () => {
                     icon={Hash}
                     key={channelItem._id}
                     id={channelItem._id}
+                    variant={pathname === `/workspace/${workspaceId}/channel/${channelItem._id}` ? "active" : "default"}
                   />
                 ))}
             </WorkspaceSection>
 
-            <WorkspaceSection label="Direct Messages" hint="+" onNew={() => {}}>
-              {members?.map((member) => (
-                <div key={member._id} className="flex items-center">
-                  <UserItem
-                    id={member._id}
-                    label={member.user?.name}
-                    image={member.user?.image}
-                  />
-                  {member._id !== currentMember._id && (
-                    <button
-                      className="ml-auto text-xs hover:underline"
-                      onClick={() => handleCreateDM(member._id)}
-                    >
-                      DM
-                    </button>
-                  )}
-                </div>
+            <WorkspaceSection label="Direct Messages">
+              {conversations?.map((conv: Conversation) => (
+                <SidebarItem
+                  key={conv._id}
+                  label={conv.otherUser.name}
+                  id={conv.otherUser._id}
+                  icon={MessageSquareText}
+                  href={`/workspace/${workspaceId}/messages/${conv.otherUser._id}`}
+                  variant={pathname === `/workspace/${workspaceId}/messages/${conv.otherUser._id}` ? "active" : "default"}
+                />
               ))}
+              
+              <div className="mt-2 pt-2 border-t border-white/10">
+                {members?.filter(m => m.user?._id !== currentMember.user?._id).map((member) => (
+                  <div key={member._id} className="flex items-center justify-between py-1">
+                    <span className="text-sm">{member.user?.name}</span>
+                    <Button 
+                      variant="ghost" 
+                      size="sm"
+                      onClick={() => handleStartDM(member.user?._id as Id<"users">)}
+                    >
+                      Message
+                    </Button>
+                  </div>
+                ))}
+              </div>
             </WorkspaceSection>
           </div>
 
