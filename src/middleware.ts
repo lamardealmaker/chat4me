@@ -12,8 +12,12 @@ const isProtectedRoute = createRouteMatcher([
   "/workspace(.*)",
   "/join(.*)"
 ]);
+const isAuthCallback = createRouteMatcher(["/api/auth/callback/(.*)"]); 
 
 export default convexAuthNextjsMiddleware(async (request, { convexAuth }) => {
+  if (isAuthCallback(request)) {
+    return; // Let auth callbacks pass through
+  }
   if (isSignInPage(request) && (await convexAuth.isAuthenticated())) {
     return nextjsMiddlewareRedirect(request, "/dashboard");
   }
