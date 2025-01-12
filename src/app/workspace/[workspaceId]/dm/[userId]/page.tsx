@@ -1,12 +1,7 @@
 "use client";
 
 import { DmChat } from "./components/dm-chat";
-import { Metadata } from "next";
 import { useParams } from "next/navigation";
-
-export const metadata: Metadata = {
-  title: "Direct Message",
-};
 
 export default function DmPage() {
   const params = useParams();
