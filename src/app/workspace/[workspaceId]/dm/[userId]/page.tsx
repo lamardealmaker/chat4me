@@ -1,18 +1,17 @@
-// File: src/app/workspace/[workspaceId]/messages/[userId]/page.tsx
+"use client";
 
 import { DmChat } from "./components/dm-chat";
+import { useParams } from "next/navigation";
 
-// 1) Define the expected type of `params`.
-type MessagesPageProps = {
-  params: {
-    workspaceId: string;
-    userId: string;
-  };
-};
-
-// 2) Use the type in your default export function signature.
-export default function MessagesByUserPage({ params }: MessagesPageProps) {
-  const { workspaceId, userId } = params;
+/**
+ * A client component page for rendering DMs between the logged-in user
+ * and another user (identified by [userId]) within a particular workspace ([workspaceId]).
+ */
+export default function MessagesPage() {
+  // Grab dynamic route params from Next.js:
+  const params = useParams();
+  const userId = params.userId as string;
+  const workspaceId = params.workspaceId as string;
 
   return (
     <div className="h-full">
