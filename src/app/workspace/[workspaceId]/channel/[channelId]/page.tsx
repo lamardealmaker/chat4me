@@ -106,7 +106,8 @@ export default function ChannelPage() {
     try {
       await sendMessage({ 
         channelId: channelId as Id<"channels">, 
-        text 
+        text,
+        parentMessageId: selectedThread || undefined
       });
       setText("");
     } catch (error) {

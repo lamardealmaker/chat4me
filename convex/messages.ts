@@ -45,6 +45,7 @@ export const list = query({
     const messages = await ctx.db
       .query("messages")
       .withIndex("by_channel_id", (q) => q.eq("channelId", args.channelId))
+      .filter((q) => q.eq(q.field("parentMessageId"), undefined))
       .collect();
 
     const results = [];
