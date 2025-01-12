@@ -15,4 +15,4 @@ export default function DmPage({
       <DmChat userId={params.userId} workspaceId={params.workspaceId} />
     </div>
   );
-} 
+}  
