@@ -1,4 +1,3 @@
-"use client";
 
 import { DmChat } from "./components/dm-chat";
 import { useParams } from "next/navigation";
