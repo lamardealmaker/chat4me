@@ -133,7 +133,7 @@ export const SignInCard = ({ setState }: SignInCardProps) => {
           <Separator className="flex-1" />
         </div>
 
-        <Button 
+        {/* <Button 
           variant="outline" 
           className="w-full h-12" 
           type="button"
@@ -171,7 +171,7 @@ export const SignInCard = ({ setState }: SignInCardProps) => {
               Continue with GitHub
             </>
           )}
-        </Button>
+        </Button> */}
       </CardContent>
       <CardFooter className="flex flex-col gap-4">
         <p className="text-sm text-muted-foreground text-center">
