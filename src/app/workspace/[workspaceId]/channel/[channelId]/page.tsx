@@ -272,28 +272,6 @@ export default function ChannelPage() {
   // Sort messages by creation time, newest first
   const sortedMessages = [...messages].sort((a, b) => a.createdAt - b.createdAt);
 
-  // Show empty state for DMs with no messages
-  if (currentChannel?.type === "dm" && messages.length === 0) {
-    return (
-      <div className="flex flex-col h-full">
-        <ChannelHeader channel={currentChannel} />
-        <div className="flex flex-col items-center justify-center flex-1 bg-emerald-50/30">
-          <div className="flex flex-col items-center max-w-md text-center p-8 bg-white rounded-lg shadow-sm">
-            <div className="p-3 bg-emerald-100 rounded-full mb-4">
-              <MessageSquare className="h-8 w-8 text-emerald-600" />
-            </div>
-            <h2 className="text-2xl font-semibold text-emerald-900 mb-2">
-              Start a Conversation
-            </h2>
-            <p className="text-emerald-600">
-              Send a message to start chatting with {currentChannel.name}
-            </p>
-          </div>
-        </div>
-      </div>
-    );
-  }
-
   return (
     <div className="flex h-full">
       {/* Left section: main channel messages */}
