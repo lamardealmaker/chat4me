@@ -15,6 +15,8 @@ import { useCurrentUser } from "../api/use-current-user";
 import { Loader, LogOut } from "lucide-react";
 import { useAuthActions } from "@convex-dev/auth/react";
 import { useRouter } from "next/navigation";
+import { useUpdatePresence } from "@/app/features/presence/hooks/use-presence";
+import { useWorkspaceId } from "@/hooks/use-workspace-id";
 
 const getRandomColor = () => {
   const colors = [
@@ -34,6 +36,8 @@ export const UserButton = () => {
   const { data, isLoading } = useCurrentUser();
   const { signOut } = useAuthActions();
   const router = useRouter();
+  const workspaceId = useWorkspaceId();
+  const updatePresence = useUpdatePresence();
 
   if (isLoading) {
     return <Loader className="size-4 animate-spin text-muted-foreground" />;
@@ -52,8 +56,21 @@ export const UserButton = () => {
     .slice(0, 2);
 
   const onSignOut = async () => {
-    await signOut();
-    router.push("/signin");
+    try {
+      // Set presence to offline before logging out
+      if (workspaceId) {
+        await updatePresence({
+          workspaceId,
+          status: "offline"
+        });
+      }
+      await signOut();
+      router.push("/signin");
+    } catch (error) {
+      // If presence update fails, still proceed with logout
+      await signOut();
+      router.push("/signin");
+    }
   };
 
   return (
