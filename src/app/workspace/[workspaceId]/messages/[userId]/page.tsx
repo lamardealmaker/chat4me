@@ -1,6 +1,4 @@
-"use client";
-
-import { DmChat } from "./components/dm-chat";
+import { MessagesContent } from "./components/messages-content";
 import { Metadata } from "next";
 
 export const metadata: Metadata = {
@@ -16,9 +14,5 @@ interface MessagesPageProps {
 }
 
 export default function MessagesPage({ params }: MessagesPageProps) {
-  return (
-    <div className="h-full">
-      <DmChat userId={params.userId} workspaceId={params.workspaceId} />
-    </div>
-  );
+  return <MessagesContent userId={params.userId} workspaceId={params.workspaceId} />;
 } 
