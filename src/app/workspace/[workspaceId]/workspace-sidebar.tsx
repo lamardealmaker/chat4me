@@ -6,34 +6,34 @@ import { useCurrentMember } from "@/app/features/members/api/use-current-member"
 import { useGetWorkspace } from "@/app/features/workspaces/api/use-get-workspace";
 import { useGetChannels } from "@/app/features/channels/api/use-get-channels";
 import { useGetMembers } from "@/app/features/members/api/use-get-members";
-import { Hash, Plus, Loader, AlertTriangle, MessageSquareText, SendHorizonal, X } from "lucide-react";
+import { Hash, Plus, Loader, AlertTriangle, MessageSquareText, SendHorizonal, X, ChevronDown, ChevronRight, Circle } from "lucide-react";
 import { WorkspaceSection } from "./workspace-section";
 import { SidebarItem } from "./sidebar-item";
 import { UserItem } from "./user-item";
 import { WorkspaceHeader } from "./workspace-header";
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useMutation, useQuery } from "convex/react";
 import { api } from "../../../../convex/_generated/api";
 import { WorkspacePresence } from "@/app/features/presence/components/workspace-presence";
-import { Id } from "../../../../convex/_generated/dataModel";
+import { Id, Doc } from "../../../../convex/_generated/dataModel";
 import { Button } from "@/components/ui/button";
 import { useRouter, usePathname } from "next/navigation";
-
-// Update conversation interface
-interface Conversation {
-  _id: Id<"dmConversations">;
-  otherUser: {
-    _id: Id<"users">;
-    name: string;
-    image?: string;
-  };
-}
+import { useCreateDM } from "@/app/features/channels/api/use-create-dm";
 
 export const WorkspacesSidebar = () => {
   const router = useRouter();
   const pathname = usePathname();
   const workspaceId = useWorkspaceId();
   const [_open, setOpen] = useCreateChannelModal();
+  const createDM = useCreateDM();
+  const cleanupDMs = useMutation(api.channels.cleanupDuplicateDMs);
+
+  // Run cleanup when workspace loads
+  useEffect(() => {
+    if (workspaceId) {
+      cleanupDMs({ workspaceId: workspaceId as Id<"workspaces"> });
+    }
+  }, [workspaceId]);
 
   const { data: currentMember, isLoading: isCurrentMemberLoading } =
     useCurrentMember({ workspaceId });
@@ -44,26 +44,30 @@ export const WorkspacesSidebar = () => {
   const { data: members, isLoading: isMembersLoading } =
     useGetMembers({ workspaceId });
 
-  const conversations = useQuery(api.directMessages.listConversations, {
-    workspaceId: workspaceId as Id<"workspaces">,
-  }) as Conversation[] | undefined;
+  const regularChannels = channels?.filter(c => c.type !== "dm") ?? [];
+  const dmChannels = channels?.filter(c => c.type === "dm" && c.name?.trim()) ?? [];
 
-  const sendMessage = useMutation(api.directMessages.send);
+  // Filter out current user from members list
+  const otherMembers = members?.filter(m => m.user?._id !== currentMember?.user?._id) ?? [];
 
-  const handleStartDM = async (memberId: Id<"users">) => {
-    try {
-      // Create conversation with empty message
-      await sendMessage({
-        recipientId: memberId,
-        workspaceId: workspaceId as Id<"workspaces">,
-        content: "",
-      });
-      // Then navigate
-      router.push(`/workspace/${workspaceId}/messages/${memberId}`);
-    } catch (error) {
-      console.error("Failed to start DM:", error);
-    }
+  const handleUserClick = async (userId: Id<"users">) => {
+    if (!workspaceId) return;
+    await createDM(workspaceId, userId);
   };
+
+  // Get online presence
+  const presence = useQuery(api.presence.list, {
+    workspaceId: workspaceId as Id<"workspaces">,
+  }) ?? [];
+
+  // Filter members to only show online ones
+  const onlineMembers = members?.filter(member => 
+    member.user?._id !== currentMember?.user?._id && // Not current user
+    presence.some((p: Doc<"userPresence">) => 
+      p.userId === member.user?._id && 
+      p.status === "online"
+    )
+  ) ?? [];
 
   if (isCurrentMemberLoading || isWorkspaceLoading) {
     return (
@@ -114,35 +118,43 @@ export const WorkspacesSidebar = () => {
                     icon={Hash}
                     key={channelItem._id}
                     id={channelItem._id}
+                    href={`/workspace/${workspaceId}/channel/${channelItem._id}`}
                     variant={pathname === `/workspace/${workspaceId}/channel/${channelItem._id}` ? "active" : "default"}
                   />
                 ))}
             </WorkspaceSection>
 
-            <WorkspaceSection label="Direct Messages">
-              {conversations?.map((conv: Conversation) => (
-                <SidebarItem
-                  key={conv._id}
-                  label={conv.otherUser.name}
-                  id={conv.otherUser._id}
-                  icon={MessageSquareText}
-                  href={`/workspace/${workspaceId}/messages/${conv.otherUser._id}`}
-                  variant={pathname === `/workspace/${workspaceId}/messages/${conv.otherUser._id}` ? "active" : "default"}
-                />
-              ))}
-              
+            <WorkspaceSection 
+              label="Direct Messages"
+              hint="+"
+            >
+              {dmChannels.length === 0 ? (
+                <div className="px-2 py-1 text-sm text-zinc-400">
+                  No direct messages yet
+                </div>
+              ) : (
+                dmChannels.map((channel) => (
+                  <SidebarItem
+                    key={channel._id}
+                    label={channel.name}
+                    id={channel._id}
+                    icon={Circle}
+                    iconClassName="h-2 w-2 mt-1 text-emerald-500"
+                    href={`/workspace/${workspaceId}/channel/${channel._id}`}
+                    variant={pathname === `/workspace/${workspaceId}/channel/${channel._id}` ? "active" : "default"}
+                  />
+                ))
+              )}
+
               <div className="mt-2 pt-2 border-t border-white/10">
-                {members?.filter(m => m.user?._id !== currentMember.user?._id).map((member) => (
-                  <div key={member._id} className="flex items-center justify-between py-1">
-                    <span className="text-sm">{member.user?.name}</span>
-                    <Button 
-                      variant="ghost" 
-                      size="sm"
-                      onClick={() => handleStartDM(member.user?._id as Id<"users">)}
-                    >
-                      Message
-                    </Button>
-                  </div>
+                {otherMembers.map((member) => (
+                  <button
+                    key={member._id}
+                    onClick={() => handleUserClick(member.user?._id as Id<"users">)}
+                    className="flex items-center gap-x-2 px-2 py-1 w-full hover:bg-zinc-700/10 dark:hover:bg-zinc-700/50 transition rounded-md text-sm"
+                  >
+                    <span>{member.user?.name}</span>
+                  </button>
                 ))}
               </div>
             </WorkspaceSection>

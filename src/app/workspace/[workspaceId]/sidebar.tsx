@@ -11,6 +11,7 @@ import { usePathname, useRouter } from "next/navigation";
 import { useQuery } from "convex/react";
 import { api } from "../../../../convex/_generated/api";
 import { Id } from "../../../../convex/_generated/dataModel";
+import { useGetChannels } from "@/app/features/channels/api/use-get-channels";
 
 interface ItemProps {
   label: string;
@@ -62,27 +63,29 @@ const SectionHeader = ({
 export const Sidebar = () => {
   const workspaceId = useWorkspaceId();
   const { data: workspace } = useGetWorkspace({ id: workspaceId });
+  const { data: channels } = useGetChannels({ workspaceId });
   const pathname = usePathname();
   const router = useRouter();
 
-  // Get latest DM conversation
-  const conversations = useQuery(api.directMessages.listConversations, {
-    workspaceId: workspaceId as Id<"workspaces">,
-  });
+  const dmChannels = channels?.filter(c => c.type === "dm") ?? [];
 
   const handleHomeClick = () => {
     router.push(`/workspace/${workspaceId}`);
   };
 
   const handleDMClick = () => {
-    if (conversations && conversations.length > 0) {
-      // Navigate to the most recent conversation
-      router.push(`/workspace/${workspaceId}/messages/${conversations[0].otherUser._id}`);
+    if (dmChannels && dmChannels.length > 0) {
+      // Navigate to the most recent DM channel
+      router.push(`/workspace/${workspaceId}/channel/${dmChannels[0]._id}`);
     } else {
       // Show the empty state page
-      router.push(`/workspace/${workspaceId}/messages`);
+      router.push(`/workspace/${workspaceId}/channel`);
     }
   };
+
+  // Check if current channel is a DM
+  const currentChannelId = pathname.split('/').pop();
+  const isInDM = Boolean(currentChannelId && dmChannels.some(c => c._id === currentChannelId));
 
   return (
     <aside 
@@ -93,13 +96,13 @@ export const Sidebar = () => {
         <SidebarButton 
           icon={Home} 
           label="Home" 
-          isActive={pathname === `/workspace/${workspaceId}` || pathname.includes("/channel/")} 
+          isActive={pathname === `/workspace/${workspaceId}` || (pathname.includes("/channel/") && !isInDM)} 
           onClick={handleHomeClick}
         /> 
         <SidebarButton 
           icon={MessagesSquare} 
           label="DMs" 
-          isActive={pathname.includes("/messages/")}
+          isActive={isInDM}
           onClick={handleDMClick}
         /> 
         <SidebarButton icon={File} label="Files" isActive={pathname.includes("/files/")} />

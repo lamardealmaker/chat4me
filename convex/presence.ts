@@ -138,4 +138,19 @@ export const getUserPresence = query({
       userName: user?.name || "Unknown User",
     };
   },
+});
+
+export const list = query({
+  args: {
+    workspaceId: v.id("workspaces"),
+  },
+  handler: async (ctx, args) => {
+    const presence = await ctx.db
+      .query("userPresence")
+      .withIndex("by_workspace", (q) => q.eq("workspaceId", args.workspaceId))
+      .filter((q) => q.eq(q.field("status"), "online"))
+      .collect();
+
+    return presence;
+  },
 }); 
