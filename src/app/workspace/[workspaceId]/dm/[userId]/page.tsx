@@ -5,14 +5,15 @@ export const metadata: Metadata = {
   title: "Direct Message",
 };
 
-export default function DmPage({ 
+export default async function DmPage({ 
   params 
 }: { 
-  params: { userId: string; workspaceId: string } 
+  params: Promise<{ userId: string; workspaceId: string }> 
 }) {
+  const resolvedParams = await params;
   return (
     <div className="h-full">
-      <DmChat userId={params.userId} workspaceId={params.workspaceId} />
+      <DmChat userId={resolvedParams.userId} workspaceId={resolvedParams.workspaceId} />
     </div>
   );
 } 
