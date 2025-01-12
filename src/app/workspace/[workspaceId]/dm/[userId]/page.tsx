@@ -1,16 +1,22 @@
-"use client";
+// File: src/app/workspace/[workspaceId]/messages/[userId]/page.tsx
 
 import { DmChat } from "./components/dm-chat";
-import { useParams } from "next/navigation";
 
-export default function DmPage() {
-  const params = useParams();
-  const userId = params.userId as string;
-  const workspaceId = params.workspaceId as string;
+// 1) Define the expected type of `params`.
+type MessagesPageProps = {
+  params: {
+    workspaceId: string;
+    userId: string;
+  };
+};
+
+// 2) Use the type in your default export function signature.
+export default function MessagesByUserPage({ params }: MessagesPageProps) {
+  const { workspaceId, userId } = params;
 
   return (
     <div className="h-full">
       <DmChat userId={userId} workspaceId={workspaceId} />
     </div>
   );
-}  
+}
