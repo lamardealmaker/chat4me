@@ -57,19 +57,9 @@ export const UserButton = () => {
 
   const onSignOut = async () => {
     try {
-      // Set presence to offline before logging out
-      if (workspaceId) {
-        await updatePresence({
-          workspaceId,
-          status: "offline"
-        });
-      }
       await signOut();
-      router.push("/signin");
-    } catch (error) {
-      // If presence update fails, still proceed with logout
-      await signOut();
-      router.push("/signin");
+    } finally {
+      window.location.href = "/signin";
     }
   };
 
