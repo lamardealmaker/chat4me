@@ -4,17 +4,24 @@ import OpenAI from "openai";
 import { internal } from "./_generated/api";
 import { Doc, Id } from "./_generated/dataModel";
 
-const openai = new OpenAI();
-
 // Type for search results
 type SearchResult = Doc<"messages"> & {
   userName: string;
   _score: number;
 };
 
+function getOpenAIClient() {
+  const apiKey = process.env.OPENAI_API_KEY;
+  if (!apiKey) {
+    throw new Error("OPENAI_API_KEY environment variable is required");
+  }
+  return new OpenAI({ apiKey });
+}
+
 export const generateEmbedding = internalAction({
   args: { text: v.string() },
   handler: async (ctx, { text }) => {
+    const openai = getOpenAIClient();
     const response = await openai.embeddings.create({
       model: "text-embedding-ada-002",
       input: text,
