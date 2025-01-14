@@ -137,7 +137,7 @@ export const WorkspacesSidebar = () => {
                 dmChannels.map((channel) => {
                   const otherUserId = channel.userIds?.find(id => id !== currentMember?.user?._id);
                   return (
-                    <div key={channel._id} className="flex items-center">
+                    <div key={channel._id} className="flex items-center relative">
                       {otherUserId && (
                         <MessagePresence 
                           workspaceId={workspaceId} 
@@ -164,7 +164,7 @@ export const WorkspacesSidebar = () => {
                   <button
                     key={member._id}
                     onClick={() => handleUserClick(member.user?._id as Id<"users">)}
-                    className="flex items-center gap-x-2 px-2 py-1 w-full hover:bg-zinc-700/10 dark:hover:bg-zinc-700/50 transition rounded-md text-sm"
+                    className="flex items-center gap-x-2 px-2 py-1 w-full hover:bg-zinc-700/10 dark:hover:bg-zinc-700/50 transition rounded-md text-sm relative"
                   >
                     <MessagePresence 
                       workspaceId={workspaceId} 
