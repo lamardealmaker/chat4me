@@ -143,30 +143,24 @@ export function ThreadPanel({
   return (
     <div className="flex flex-col h-full">
       {/* Header */}
-      <div className="p-4 flex justify-between items-center shrink-0">
+      <div className="p-4 flex justify-between items-center shrink-0 border-b border-emerald-100">
         <h2 className="font-bold text-lg text-emerald-900">Thread</h2>
         <Button variant="outline" size="sm" onClick={onClose}>
           Close
         </Button>
       </div>
 
-      {/* Parent message */}
-      <div className="px-4 pb-4 border-b border-emerald-100 shrink-0">
-        <MessageWithReactions message={parentMessage} />
-      </div>
-
-      {/* Thread messages - will grow to fill available space */}
-      <div className="flex-1 min-h-0 overflow-y-auto px-4">
-        <div className="py-4 space-y-4">
-          {threadMessages.length === 0 ? (
-            <p className="text-sm text-emerald-600 italic">
-              No replies yet. Be the first to reply.
-            </p>
-          ) : (
-            threadMessages.map((msg) => (
-              <MessageWithReactions key={msg._id} message={msg} />
-            ))
-          )}
+      {/* All messages in one scrollable section */}
+      <div className="flex-1 min-h-0 overflow-y-auto">
+        <div className="p-4 space-y-4">
+          {/* Parent message */}
+          <MessageWithReactions message={parentMessage} />
+          
+          {/* Thread replies */}
+          {threadMessages.length > 0 && threadMessages.map((msg) => (
+            <MessageWithReactions key={msg._id} message={msg} />
+          ))}
+          
           {/* Invisible div for scrolling to bottom */}
           <div ref={messagesEndRef} />
         </div>
