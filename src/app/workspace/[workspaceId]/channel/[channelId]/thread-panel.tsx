@@ -141,8 +141,9 @@ export function ThreadPanel({
   }
 
   return (
-    <div className="p-4 flex flex-col h-full">
-      <div className="flex justify-between items-center">
+    <div className="flex flex-col h-full">
+      {/* Header */}
+      <div className="p-4 flex justify-between items-center shrink-0">
         <h2 className="font-bold text-lg text-emerald-900">Thread</h2>
         <Button variant="outline" size="sm" onClick={onClose}>
           Close
@@ -150,25 +151,29 @@ export function ThreadPanel({
       </div>
 
       {/* Parent message */}
-      <div className="mt-4 border-b border-emerald-100 pb-4">
+      <div className="px-4 pb-4 border-b border-emerald-100 shrink-0">
         <MessageWithReactions message={parentMessage} />
       </div>
 
-      <div className="flex-1 overflow-y-auto mt-4 space-y-2 pr-2">
-        {threadMessages.length === 0 ? (
-          <p className="text-sm text-emerald-600 italic">
-            No replies yet. Be the first to reply.
-          </p>
-        ) : (
-          threadMessages.map((msg) => (
-            <MessageWithReactions key={msg._id} message={msg} />
-          ))
-        )}
-        {/* Invisible div for scrolling to bottom */}
-        <div ref={messagesEndRef} />
+      {/* Thread messages - will grow to fill available space */}
+      <div className="flex-1 min-h-0 overflow-y-auto px-4">
+        <div className="py-4 space-y-4">
+          {threadMessages.length === 0 ? (
+            <p className="text-sm text-emerald-600 italic">
+              No replies yet. Be the first to reply.
+            </p>
+          ) : (
+            threadMessages.map((msg) => (
+              <MessageWithReactions key={msg._id} message={msg} />
+            ))
+          )}
+          {/* Invisible div for scrolling to bottom */}
+          <div ref={messagesEndRef} />
+        </div>
       </div>
 
-      <div className="mt-2">
+      {/* Reply input - fixed at bottom */}
+      <div className="p-4 border-t border-emerald-100 bg-white shrink-0">
         <div className="flex gap-2">
           <Input
             placeholder="Reply in thread..."
