@@ -52,10 +52,40 @@ const schema = defineSchema({
     text: v.string(),
     createdAt: v.number(),
     parentMessageId: v.optional(v.id("messages")),
+    isAI: v.optional(v.boolean()),
   })
     .index("by_channel_id", ["channelId"])
     .index("by_user_id", ["userId"])
     .index("by_parent_message_id", ["parentMessageId"]),
+
+  messageEmbeddings: defineTable({
+    messageId: v.id("messages"),
+    vector: v.array(v.number()),
+    createdAt: v.number(),
+  })
+    .index("by_message_id", ["messageId"])
+    .vectorIndex("by_vector", {
+      vectorField: "vector",
+      dimensions: 1536,
+    }),
+
+  aiTasks: defineTable({
+    channelId: v.id("channels"),
+    userId: v.id("users"),
+    messageId: v.id("messages"),
+    status: v.union(
+      v.literal("pending"),
+      v.literal("processing"),
+      v.literal("completed"),
+      v.literal("failed")
+    ),
+    createdAt: v.number(),
+    completedAt: v.optional(v.number()),
+    error: v.optional(v.string()),
+  })
+    .index("by_status", ["status"])
+    .index("by_channel", ["channelId"])
+    .index("by_user", ["userId"]),
 
   reactions: defineTable({
     messageId: v.id("messages"),

@@ -128,6 +128,12 @@ export default function ChannelPage() {
           <div className="text-sm text-emerald-800 flex justify-between items-center mb-2">
             <div className="flex items-center gap-2">
               <strong className="font-medium text-emerald-900">{msg.userName}</strong>
+              {msg.isAI && (
+                <span className="text-xs text-emerald-400 flex items-center gap-1">
+                  <span className="inline-block w-3 h-3">🤖</span>
+                  <span className="opacity-75">AI</span>
+                </span>
+              )}
               <MessagePresence 
                 workspaceId={workspaceId} 
                 userId={msg.userId} 
@@ -185,9 +191,17 @@ export default function ChannelPage() {
     // DM Message Style
     return (
       <div className="flex flex-col max-w-[60%] space-y-1 mb-4">
-        <span className="text-xs text-emerald-500 ml-2">
-          {new Date(msg.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
-        </span>
+        <div className="flex items-center gap-2 ml-2">
+          <span className="text-xs text-emerald-500">
+            {new Date(msg.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+          </span>
+          {msg.isAI && (
+            <span className="text-xs text-emerald-400 flex items-center gap-1">
+              <span className="inline-block w-3 h-3">🤖</span>
+              <span className="opacity-75">AI</span>
+            </span>
+          )}
+        </div>
         <div className="bg-emerald-600 text-white px-3.5 py-2 rounded-[18px] rounded-br-none shadow-sm">
           <div className="text-sm leading-relaxed break-words">
             {msg.text}

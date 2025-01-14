@@ -33,11 +33,13 @@ export const updatePresence = mutation({
         )
         .first();
 
+      const now = Date.now();
+
       if (existing) {
         await ctx.db.patch(existing._id, {
           status,
           customStatus,
-          lastSeen: Date.now(),
+          lastSeen: now,
         });
       } else {
         await ctx.db.insert("userPresence", {
@@ -45,10 +47,10 @@ export const updatePresence = mutation({
           workspaceId,
           status,
           customStatus,
-          lastSeen: Date.now(),
+          lastSeen: now,
         });
       }
-    } catch {
+    } catch (error: any) {
       // Silently handle any DB operation failures
       return;
     }
