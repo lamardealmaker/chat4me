@@ -50,6 +50,7 @@ const schema = defineSchema({
     channelId: v.id("channels"),
     userId: v.id("users"),
     text: v.string(),
+    formattedText: v.optional(v.string()),
     createdAt: v.number(),
     parentMessageId: v.optional(v.id("messages")),
     isAI: v.optional(v.boolean()),

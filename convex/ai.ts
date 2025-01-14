@@ -175,7 +175,7 @@ ${similarMessages.map(m => `- ${m.text}`).join('\n')}
 Here is the user's writing style and tone (examples from their 25 latest messages):
 ${recentMessages.map((m: Doc<"messages">) => `- ${m.text}`).join('\n')}
 
-Output answer using the user's style. The user is offline right now.`;
+Output answer using the user's style and personality.`;
 
   // Call OpenAI for response
   const response = await fetch("https://api.openai.com/v1/chat/completions", {
@@ -189,7 +189,7 @@ Output answer using the user's style. The user is offline right now.`;
       messages: [
         {
           role: "system",
-          content: "You are an AI assistant responding on behalf of a user who is currently offline. Match their writing style and tone while providing helpful responses.",
+          content: "You are an AI assistant responding on behalf of a user. Match their writing style, tone, and personality while providing helpful responses.",
         },
         {
           role: "user",

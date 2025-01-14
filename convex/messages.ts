@@ -62,17 +62,32 @@ export const send = mutation({
 
     // Only check for AI responses if this isn't already an AI message
     if (!isAI) {
-      // For testing: Always generate AI responses for DMs
+      // Handle offline users based on channel type
+      const TWO_MINUTES = 2 * 60 * 1000;
+      const now = Date.now();
+
       if (channel.type === "dm" && channel.userIds) {
-        // For DM channels, respond for all other users
+        // For DM channels, check all other users
         const otherUserIds = channel.userIds.filter(id => id !== effectiveUserId);
         
         for (const otherUserId of otherUserIds) {
-          await ctx.scheduler.runAfter(0, api.ai.queueResponse, {
-            channelId,
-            userId: otherUserId,
-            messageId,
-          });
+          // Check user's presence
+          const presence = await ctx.db
+            .query("userPresence")
+            .withIndex("by_workspace_and_user", (q) =>
+              q.eq("workspaceId", channel.workspaceId).eq("userId", otherUserId)
+            )
+            .first();
+
+          // If user is offline, queue AI response
+          const isOffline = !presence || (now - presence.lastSeen > TWO_MINUTES);
+          if (isOffline) {
+            await ctx.scheduler.runAfter(0, api.ai.queueResponse, {
+              channelId,
+              userId: otherUserId,
+              messageId,
+            });
+          }
         }
       } else if (parentMessageId) {
         // For channel messages, always respond if replying to someone else's message
