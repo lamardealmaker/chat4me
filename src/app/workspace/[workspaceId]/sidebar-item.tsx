@@ -9,6 +9,7 @@ interface SidebarItemProps {
   href?: string;
   variant?: "default" | "active";
   iconClassName?: string;
+  className?: string;
 }
 
 export const SidebarItem = ({
@@ -18,6 +19,7 @@ export const SidebarItem = ({
   href,
   variant = "default",
   iconClassName,
+  className,
 }: SidebarItemProps) => {
   const router = useRouter();
 
@@ -33,7 +35,8 @@ export const SidebarItem = ({
       className={cn(
         "flex items-center gap-x-2 px-2 py-1 w-full transition rounded-md",
         variant === "default" && "text-white hover:bg-white/10",
-        variant === "active" && "bg-white text-emerald-700"
+        variant === "active" && "bg-white text-emerald-700",
+        className
       )}
     >
       <Icon className={cn("h-4 w-4", iconClassName)} />

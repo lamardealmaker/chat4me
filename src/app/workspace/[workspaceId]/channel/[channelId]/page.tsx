@@ -36,13 +36,23 @@ const EMOJI_MAP: Record<string, string> = {
 
 const ChannelHeader = ({ channel }: { channel: any }) => {
   const isDM = channel.type === "dm";
+  const params = useParams();
+  const workspaceId = params.workspaceId as Id<"workspaces">;
+  const otherUserId = isDM ? channel.userIds?.find((id: string) => id !== currentUser?.data?._id) : null;
+  const { data: currentUser } = useCurrentUser();
   
   return (
     <div className="flex items-center px-6 py-4 border-b bg-white shadow-sm">
       <div className="flex items-center gap-3">
         {isDM ? (
           <>
-            <Circle className="h-3 w-3 text-emerald-500 shrink-0" />
+            {otherUserId && (
+              <MessagePresence 
+                workspaceId={workspaceId} 
+                userId={otherUserId as Id<"users">} 
+                className="h-3 w-3" 
+              />
+            )}
             <h1 className="text-xl font-semibold text-emerald-900">{channel.name}</h1>
           </>
         ) : (

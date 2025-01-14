@@ -19,6 +19,7 @@ import { Id, Doc } from "../../../../convex/_generated/dataModel";
 import { Button } from "@/components/ui/button";
 import { useRouter, usePathname } from "next/navigation";
 import { useCreateDM } from "@/app/features/channels/api/use-create-dm";
+import { MessagePresence } from "@/app/features/presence/components/message-presence";
 
 export const WorkspacesSidebar = () => {
   const router = useRouter();
@@ -133,17 +134,29 @@ export const WorkspacesSidebar = () => {
                   No direct messages yet
                 </div>
               ) : (
-                dmChannels.map((channel) => (
-                  <SidebarItem
-                    key={channel._id}
-                    label={channel.name}
-                    id={channel._id}
-                    icon={Circle}
-                    iconClassName="h-2 w-2 mt-1 text-emerald-500"
-                    href={`/workspace/${workspaceId}/channel/${channel._id}`}
-                    variant={pathname === `/workspace/${workspaceId}/channel/${channel._id}` ? "active" : "default"}
-                  />
-                ))
+                dmChannels.map((channel) => {
+                  const otherUserId = channel.userIds?.find(id => id !== currentMember?.user?._id);
+                  return (
+                    <div key={channel._id} className="flex items-center">
+                      {otherUserId && (
+                        <MessagePresence 
+                          workspaceId={workspaceId} 
+                          userId={otherUserId as Id<"users">}
+                          className="h-2 w-2 absolute left-2 mt-1"
+                        />
+                      )}
+                      <SidebarItem
+                        label={channel.name}
+                        id={channel._id}
+                        icon={Circle}
+                        iconClassName="h-2 w-2 mt-1 text-emerald-500 opacity-0"
+                        href={`/workspace/${workspaceId}/channel/${channel._id}`}
+                        variant={pathname === `/workspace/${workspaceId}/channel/${channel._id}` ? "active" : "default"}
+                        className="pl-7"
+                      />
+                    </div>
+                  );
+                })
               )}
 
               <div className="mt-2 pt-2 border-t border-white/10">
@@ -153,6 +166,11 @@ export const WorkspacesSidebar = () => {
                     onClick={() => handleUserClick(member.user?._id as Id<"users">)}
                     className="flex items-center gap-x-2 px-2 py-1 w-full hover:bg-zinc-700/10 dark:hover:bg-zinc-700/50 transition rounded-md text-sm"
                   >
+                    <MessagePresence 
+                      workspaceId={workspaceId} 
+                      userId={member.user?._id as Id<"users">}
+                      className="h-2 w-2"
+                    />
                     <span>{member.user?.name}</span>
                   </button>
                 ))}

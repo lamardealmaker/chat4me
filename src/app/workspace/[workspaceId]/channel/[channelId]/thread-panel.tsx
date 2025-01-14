@@ -88,6 +88,12 @@ export function ThreadPanel({
       <div className="flex items-center gap-2 mb-2">
         <div className="flex items-center gap-2">
           <strong className="font-medium text-emerald-900">{message.userName}</strong>
+          {message.isAI && (
+            <span className="text-xs text-emerald-400 flex items-center gap-1">
+              <span className="inline-block w-3 h-3">🤖</span>
+              <span className="opacity-75">AI</span>
+            </span>
+          )}
           <MessagePresence 
             workspaceId={workspaceId} 
             userId={message.userId} 
