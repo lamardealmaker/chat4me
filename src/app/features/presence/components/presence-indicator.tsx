@@ -14,7 +14,7 @@ export function PresenceIndicator({ status, className }: PresenceIndicatorProps)
         {
           "bg-emerald-400": status === "online",
           "bg-amber-400": status === "away",
-          "bg-zinc-400": status === "offline",
+          "bg-red-400": status === "offline",
         },
         className
       )}
