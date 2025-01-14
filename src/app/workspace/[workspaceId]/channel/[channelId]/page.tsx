@@ -19,6 +19,7 @@ import { useGetWorkspace } from "@/app/features/workspaces/api/use-get-workspace
 import { InviteModal } from "../../invite-modal";
 import { useGetChannels } from "@/app/features/channels/api/use-get-channels";
 import { cn } from "@/lib/utils";
+import { useCurrentUser } from "@/app/features/auth/api/use-current-user";
 
 const EMOJI_MAP: Record<string, string> = {
   thumbs_up: "👍",
@@ -72,6 +73,7 @@ export default function ChannelPage() {
   const messages = useQuery(api.messages.list, { channelId: channelId as Id<"channels"> });
   const sendMessage = useMutation(api.messages.send);
   const toggleReaction = useMutation(api.messages.toggleReaction);
+  const { data: currentUser } = useCurrentUser();
 
   const currentChannel = channels?.find(c => c._id === channelId);
 
@@ -121,6 +123,8 @@ export default function ChannelPage() {
     const workspaceId = params.workspaceId as Id<"workspaces">;
     const currentChannel = channels?.find(c => c._id === channelId);
     const isDM = currentChannel?.type === "dm";
+    const { data: currentUser } = useCurrentUser();
+    const isSentByMe = msg.userId === currentUser?._id;
     
     if (!isDM) {
       return (
@@ -190,8 +194,14 @@ export default function ChannelPage() {
 
     // DM Message Style
     return (
-      <div className="flex flex-col max-w-[60%] space-y-1 mb-4">
-        <div className="flex items-center gap-2 ml-2">
+      <div className={cn(
+        "flex flex-col max-w-[60%] space-y-1 mb-4",
+        isSentByMe ? "ml-auto" : ""
+      )}>
+        <div className={cn(
+          "flex items-center gap-2",
+          isSentByMe ? "justify-end mr-2" : "ml-2"
+        )}>
           <span className="text-xs text-emerald-500">
             {new Date(msg.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
           </span>
@@ -202,15 +212,26 @@ export default function ChannelPage() {
             </span>
           )}
         </div>
-        <div className="bg-emerald-600 text-white px-3.5 py-2 rounded-[18px] rounded-br-none shadow-sm">
+        <div className={cn(
+          "px-3.5 py-2 rounded-[18px] shadow-sm",
+          isSentByMe 
+            ? "bg-emerald-600 text-white rounded-br-none" 
+            : "bg-gray-100 text-emerald-900 rounded-bl-none"
+        )}>
           <div className="text-sm leading-relaxed break-words">
             {msg.text}
           </div>
           {(replyCount > 0 || msg.reactions) && (
-            <div className="mt-2 pt-2 border-t border-emerald-500/30">
+            <div className={cn(
+              "mt-2 pt-2",
+              isSentByMe ? "border-t border-emerald-500/30" : "border-t border-gray-200"
+            )}>
               {replyCount > 0 && (
                 <button
-                  className="text-xs text-emerald-100 hover:text-white flex items-center gap-1 mb-2"
+                  className={cn(
+                    "text-xs flex items-center gap-1 mb-2",
+                    isSentByMe ? "text-emerald-100 hover:text-white" : "text-emerald-600 hover:text-emerald-700"
+                  )}
                   onClick={() => setSelectedThread(msg._id)}
                 >
                   <MessageSquare className="h-3 w-3" />
@@ -221,17 +242,30 @@ export default function ChannelPage() {
                 <button
                   key={code}
                   onClick={() => handleReaction(msg._id, code)}
-                  className="inline-flex items-center gap-1 mr-1 px-2 py-0.5 bg-emerald-500/20 hover:bg-emerald-500/30 rounded-full text-sm transition-colors"
+                  className={cn(
+                    "inline-flex items-center gap-1 mr-1 px-2 py-0.5 rounded-full text-sm transition-colors",
+                    isSentByMe 
+                      ? "bg-emerald-500/20 hover:bg-emerald-500/30" 
+                      : "bg-gray-200 hover:bg-gray-300"
+                  )}
                 >
                   <span>{EMOJI_MAP[code] || code}</span>
-                  <span className="text-xs text-emerald-100">{data.count}</span>
+                  <span className={cn(
+                    "text-xs",
+                    isSentByMe ? "text-emerald-100" : "text-emerald-600"
+                  )}>{data.count}</span>
                 </button>
               ))}
               <EmojiPicker
                 onEmojiSelect={(code) => handleReaction(msg._id, code)}
                 trigger={
-                  <button className="p-1.5 hover:bg-emerald-500/20 rounded-full transition-colors inline-flex">
-                    <Smile className="h-4 w-4 text-emerald-100" />
+                  <button className={cn(
+                    "p-1.5 rounded-full transition-colors inline-flex",
+                    isSentByMe 
+                      ? "hover:bg-emerald-500/20 text-emerald-100" 
+                      : "hover:bg-gray-200 text-emerald-400"
+                  )}>
+                    <Smile className="h-4 w-4" />
                   </button>
                 }
               />
