@@ -1,7 +1,7 @@
 import { mutation, query } from "./_generated/server";
 import { v } from "convex/values";
 import { auth } from "./auth";
-import { api } from "./_generated/api";
+import { api, internal } from "./_generated/api";
 
 export const getById = query({
   args: { messageId: v.id("messages") },
@@ -56,86 +56,33 @@ export const send = mutation({
     });
 
     // Generate and store embedding asynchronously
-    await ctx.scheduler.runAfter(0, api.embeddings.generateEmbedding, {
+    await ctx.scheduler.runAfter(0, api.embeddings.generateAndStoreEmbedding, {
       messageId,
-      text,
     });
 
-    // Only check for offline responses if this isn't already an AI message
+    // Only check for AI responses if this isn't already an AI message
     if (!isAI) {
-      // Handle offline users based on channel type
-      const TWO_MINUTES = 2 * 60 * 1000;
-      const now = Date.now();
-
+      // For testing: Always generate AI responses for DMs
       if (channel.type === "dm" && channel.userIds) {
-        // For DM channels, check all other users
+        // For DM channels, respond for all other users
         const otherUserIds = channel.userIds.filter(id => id !== effectiveUserId);
         
-        console.log("Checking offline responses for DM", {
-          channelType: channel.type,
-          otherUserIds,
-          effectiveUserId
-        });
-        
         for (const otherUserId of otherUserIds) {
-          // Check user's presence
-          const presence = await ctx.db
-            .query("userPresence")
-            .withIndex("by_workspace_and_user", (q) =>
-              q.eq("workspaceId", channel.workspaceId).eq("userId", otherUserId)
-            )
-            .first();
-
-          console.log("Checking user presence", {
-            otherUserId,
-            presence: presence ? {
-              status: presence.status,
-              lastSeen: presence.lastSeen,
-              timeSinceLastSeen: now - (presence?.lastSeen || 0)
-            } : null
+          await ctx.scheduler.runAfter(0, api.ai.queueResponse, {
+            channelId,
+            userId: otherUserId,
+            messageId,
           });
-
-          // If user is offline, queue AI response
-          const isOffline = !presence || (now - presence.lastSeen > TWO_MINUTES);
-          if (isOffline) {
-            console.log("Queueing AI response for offline user", {
-              userId: otherUserId,
-              channelId,
-              messageId,
-            });
-            await ctx.scheduler.runAfter(0, api.ai.queueResponse, {
-              channelId,
-              userId: otherUserId,
-              messageId,
-            });
-          } else {
-            console.log("User is online, skipping AI response", {
-              userId: otherUserId,
-              lastSeen: presence?.lastSeen,
-              timeSinceLastSeen: now - (presence?.lastSeen || 0)
-            });
-          }
         }
       } else if (parentMessageId) {
-        // For channel messages, check if we're replying to someone
+        // For channel messages, always respond if replying to someone else's message
         const parentMessage = await ctx.db.get(parentMessageId);
         if (parentMessage && parentMessage.userId !== effectiveUserId) {
-          // Check if parent message author is offline
-          const presence = await ctx.db
-            .query("userPresence")
-            .withIndex("by_workspace_and_user", (q) =>
-              q.eq("workspaceId", channel.workspaceId).eq("userId", parentMessage.userId)
-            )
-            .first();
-
-          const isOffline = !presence || (now - presence.lastSeen > TWO_MINUTES);
-          if (isOffline) {
-            await ctx.scheduler.runAfter(0, api.ai.queueResponse, {
-              channelId,
-              userId: parentMessage.userId,
-              messageId,
-            });
-          }
+          await ctx.scheduler.runAfter(0, api.ai.queueResponse, {
+            channelId,
+            userId: parentMessage.userId,
+            messageId,
+          });
         }
       }
     }
@@ -384,5 +331,12 @@ export const getReplyCount = query({
       .collect();
     
     return replies.length;
+  },
+});
+
+export const getMessage = query({
+  args: { messageId: v.id("messages") },
+  handler: async (ctx, { messageId }) => {
+    return await ctx.db.get(messageId);
   },
 });

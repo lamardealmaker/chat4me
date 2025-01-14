@@ -1,64 +1,35 @@
 import { v } from "convex/values";
-import { action, mutation, query } from "./_generated/server";
-import { api } from "./_generated/api";
+import { action, internalAction, internalMutation, internalQuery } from "./_generated/server";
+import OpenAI from "openai";
+import { internal } from "./_generated/api";
 import { Doc, Id } from "./_generated/dataModel";
 
-// OpenAI API for generating embeddings
-const OPENAI_API_URL = "https://api.openai.com/v1/embeddings";
-const EMBEDDING_MODEL = "text-embedding-ada-002";
+const openai = new OpenAI();
 
-type MessageWithUser = Doc<"messages"> & { userName: string };
-type SearchResult = { _id: Id<"messageEmbeddings">; _score: number };
+// Type for search results
+type SearchResult = Doc<"messages"> & {
+  userName: string;
+  _score: number;
+};
 
-// Action to generate embedding from OpenAI
-export const generateEmbedding = action({
-  args: { 
-    messageId: v.id("messages"),
-    text: v.string(),
-  },
-  handler: async (ctx, { messageId, text }) => {
-    const apiKey = process.env.OPENAI_API_KEY;
-    if (!apiKey) {
-      throw new Error("OPENAI_API_KEY environment variable not set");
-    }
-
-    const response = await fetch(OPENAI_API_URL, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        Authorization: `Bearer ${apiKey}`,
-      },
-      body: JSON.stringify({
-        input: text,
-        model: EMBEDDING_MODEL,
-      }),
+export const generateEmbedding = internalAction({
+  args: { text: v.string() },
+  handler: async (ctx, { text }) => {
+    const response = await openai.embeddings.create({
+      model: "text-embedding-ada-002",
+      input: text,
     });
-
-    if (!response.ok) {
-      throw new Error(`OpenAI API error: ${response.statusText}`);
-    }
-
-    const result = await response.json();
-    const embedding = result.data[0].embedding;
-
-    // Store the embedding using a mutation
-    await ctx.runMutation(api.embeddings.storeEmbedding, {
-      messageId,
-      vector: embedding,
-    });
-
-    return embedding;
+    return response.data[0].embedding;
   },
 });
 
-// Mutation to store embedding in the database
-export const storeEmbedding = mutation({
+export const storeEmbedding = internalMutation({
   args: {
     messageId: v.id("messages"),
-    vector: v.array(v.number()),
+    vector: v.array(v.float64()),
   },
   handler: async (ctx, { messageId, vector }) => {
-    return await ctx.db.insert("messageEmbeddings", {
+    await ctx.db.insert("messageEmbeddings", {
       messageId,
       vector,
       createdAt: Date.now(),
@@ -66,19 +37,26 @@ export const storeEmbedding = mutation({
   },
 });
 
-// Query to fetch messages from search results
-export const fetchSearchResults = query({
-  args: {
-    results: v.array(v.object({
-      _id: v.id("messageEmbeddings"),
-      _score: v.number(),
-    })),
+export const getMessage = internalQuery({
+  args: { messageId: v.id("messages") },
+  handler: async (ctx, { messageId }) => {
+    return await ctx.db.get(messageId);
   },
-  handler: async (ctx, { results }): Promise<MessageWithUser[]> => {
-    const messages: MessageWithUser[] = [];
-    
-    for (const { _id } of results) {
-      const embedding = await ctx.db.get(_id);
+});
+
+export const getUser = internalQuery({
+  args: { userId: v.id("users") },
+  handler: async (ctx, { userId }) => {
+    return await ctx.db.get(userId);
+  },
+});
+
+export const fetchMessages = internalQuery({
+  args: { ids: v.array(v.id("messageEmbeddings")) },
+  handler: async (ctx, { ids }) => {
+    const results = [];
+    for (const id of ids) {
+      const embedding = await ctx.db.get(id);
       if (!embedding) continue;
 
       const message = await ctx.db.get(embedding.messageId);
@@ -87,56 +65,58 @@ export const fetchSearchResults = query({
       const user = await ctx.db.get(message.userId);
       if (!user) continue;
 
-      messages.push({
+      results.push({
         ...message,
         userName: user.name ?? "Unknown",
       });
     }
-
-    return messages;
+    return results;
   },
 });
 
-// Action to generate embedding and find similar messages
+export const generateAndStoreEmbedding = action({
+  args: { messageId: v.id("messages") },
+  handler: async (ctx, { messageId }) => {
+    const message = await ctx.runQuery(internal.embeddings.getMessage, { messageId });
+    if (!message) return;
+
+    const vector = await ctx.runAction(internal.embeddings.generateEmbedding, {
+      text: message.text,
+    });
+
+    await ctx.runMutation(internal.embeddings.storeEmbedding, {
+      messageId,
+      vector,
+    });
+  },
+});
+
 export const findSimilarMessages = action({
   args: {
     text: v.string(),
     limit: v.optional(v.number()),
   },
-  handler: async (ctx, { text, limit = 5 }): Promise<MessageWithUser[]> => {
-    const apiKey = process.env.OPENAI_API_KEY;
-    if (!apiKey) {
-      throw new Error("OPENAI_API_KEY environment variable not set");
-    }
-
-    const response = await fetch(OPENAI_API_URL, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        Authorization: `Bearer ${apiKey}`,
-      },
-      body: JSON.stringify({
-        input: text,
-        model: EMBEDDING_MODEL,
-      }),
+  handler: async (ctx, { text, limit = 4 }): Promise<SearchResult[]> => {
+    // Generate embedding for the search text
+    const vector = await ctx.runAction(internal.embeddings.generateEmbedding, {
+      text,
     });
 
-    if (!response.ok) {
-      throw new Error(`OpenAI API error: ${response.statusText}`);
-    }
-
-    const result = await response.json();
-    const queryEmbedding = result.data[0].embedding;
-
-    // Do vector search in the action
-    const searchResults = await ctx.vectorSearch("messageEmbeddings", "by_vector", {
-      vector: queryEmbedding,
+    // Use vector index to find similar messages
+    const results = await ctx.vectorSearch("messageEmbeddings", "by_vector", {
+      vector,
       limit,
     });
 
-    // Fetch the actual messages using a query
-    return await ctx.runQuery(api.embeddings.fetchSearchResults, {
-      results: searchResults,
+    // Fetch messages using internal query
+    const messages = await ctx.runQuery(internal.embeddings.fetchMessages, {
+      ids: results.map(r => r._id),
     });
+
+    // Add scores to messages
+    return messages.map((msg, i) => ({
+      ...msg,
+      _score: results[i]._score,
+    }));
   },
 }); 

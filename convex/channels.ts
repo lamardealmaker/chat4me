@@ -194,3 +194,16 @@ export const cleanupDuplicateDMs = mutation({
     }
   },
 });
+
+export const listDMChannels = query({
+  args: {},
+  handler: async (ctx) => {
+    const userId = await auth.getUserId(ctx);
+    if (!userId) return [];
+
+    return await ctx.db
+      .query("channels")
+      .filter((q) => q.eq(q.field("type"), "dm"))
+      .collect();
+  },
+});

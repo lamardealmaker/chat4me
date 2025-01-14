@@ -1,8 +1,9 @@
 import { v } from "convex/values";
-import { action, internalMutation, internalQuery, mutation, query } from "./_generated/server";
+import { ActionCtx, MutationCtx, QueryCtx } from "./_generated/server";
+import { mutation, query, action, internalQuery, internalMutation } from "./_generated/server";
 import { api, internal } from "./_generated/api";
 import { Doc, Id } from "./_generated/dataModel";
-import { GenericActionCtx } from "convex/server";
+import { auth } from "./auth";
 
 // Queue an AI response task
 export const queueResponse = mutation({
@@ -11,7 +12,7 @@ export const queueResponse = mutation({
     userId: v.id("users"),
     messageId: v.id("messages"),
   },
-  handler: async (ctx, { channelId, userId, messageId }) => {
+  handler: async (ctx: MutationCtx, { channelId, userId, messageId }) => {
     console.log("Queueing AI response", { channelId, userId, messageId });
     const taskId = await ctx.db.insert("aiTasks", {
       channelId,
@@ -25,26 +26,56 @@ export const queueResponse = mutation({
   },
 });
 
-// Debug query to check pending tasks
-export const checkPendingTasks = query({
+// Get pending AI tasks
+export const getPendingTasks = internalQuery({
   args: {},
-  handler: async (ctx) => {
-    const tasks = await ctx.db
+  handler: async (ctx: QueryCtx) => {
+    return await ctx.db
       .query("aiTasks")
-      .filter((q) => q.eq(q.field("status"), "pending"))
+      .withIndex("by_status", (q: any) => q.eq("status", "pending"))
       .collect();
-    
-    return tasks.map(task => ({
-      ...task,
-      createdAt: new Date(task.createdAt).toISOString()
-    }));
+  },
+});
+
+// Update AI task status
+export const updateTaskStatus = internalMutation({
+  args: {
+    taskId: v.id("aiTasks"),
+    status: v.union(
+      v.literal("pending"),
+      v.literal("processing"),
+      v.literal("completed"),
+      v.literal("failed")
+    ),
+    completedAt: v.optional(v.number()),
+    error: v.optional(v.string()),
+  },
+  handler: async (ctx: MutationCtx, { taskId, status, completedAt, error }) => {
+    await ctx.db.patch(taskId, {
+      status,
+      ...(completedAt && { completedAt }),
+      ...(error && { error }),
+    });
+  },
+});
+
+// Helper function to get recent messages
+export const getRecentMessages = internalQuery({
+  args: { userId: v.id("users") },
+  handler: async (ctx: QueryCtx, { userId }) => {
+    const messages = await ctx.db
+      .query("messages")
+      .withIndex("by_user_id", (q: any) => q.eq("userId", userId))
+      .order("desc")
+      .take(25);
+    return messages;
   },
 });
 
 // Process pending AI tasks
 export const processPendingTasks = action({
   args: {},
-  handler: async (ctx) => {
+  handler: async (ctx: ActionCtx) => {
     const timestamp = new Date().toISOString();
     console.log(`[${timestamp}] 🤖 CRON: Starting processPendingTasks`);
     
@@ -119,55 +150,9 @@ export const processPendingTasks = action({
   },
 });
 
-// Get pending AI tasks
-export const getPendingTasks = internalQuery({
-  args: {},
-  handler: async (ctx) => {
-    return await ctx.db
-      .query("aiTasks")
-      .withIndex("by_status", (q) => q.eq("status", "pending"))
-      .collect();
-  },
-});
-
-// Update AI task status
-export const updateTaskStatus = internalMutation({
-  args: {
-    taskId: v.id("aiTasks"),
-    status: v.union(
-      v.literal("pending"),
-      v.literal("processing"),
-      v.literal("completed"),
-      v.literal("failed")
-    ),
-    completedAt: v.optional(v.number()),
-    error: v.optional(v.string()),
-  },
-  handler: async (ctx, { taskId, status, completedAt, error }) => {
-    await ctx.db.patch(taskId, {
-      status,
-      ...(completedAt && { completedAt }),
-      ...(error && { error }),
-    });
-  },
-});
-
-// Helper function to get recent messages
-export const getRecentMessages = internalQuery({
-  args: { userId: v.id("users") },
-  handler: async (ctx, { userId }) => {
-    const messages = await ctx.db
-      .query("messages")
-      .withIndex("by_user_id", (q) => q.eq("userId", userId))
-      .order("desc")
-      .take(25);
-    return messages;
-  },
-});
-
 // Helper function to generate AI response
 async function generateAIResponse(
-  ctx: GenericActionCtx<any>,
+  ctx: ActionCtx,
   message: Doc<"messages">,
   similarMessages: Array<Doc<"messages"> & { userName: string }>
 ): Promise<string> {
@@ -221,4 +206,159 @@ Output answer using the user's style. The user is offline right now.`;
 
   const result = await response.json();
   return result.choices[0].message.content;
-} 
+}
+
+// Debug functions
+export const testAIResponse = mutation({
+  args: {
+    workspaceId: v.optional(v.id("workspaces")),
+  },
+  handler: async (ctx: MutationCtx, args) => {
+    // 1. Get current user
+    const userId = await auth.getUserId(ctx);
+    if (!userId) throw new Error("Not authenticated");
+
+    // 2. Get or use provided workspace
+    const workspaceId = args.workspaceId || await ctx.db
+      .query("workspaces")
+      .first()
+      .then((ws: Doc<"workspaces"> | null) => ws?._id);
+    if (!workspaceId) throw new Error("No workspace found");
+
+    // 3. Find another user in the workspace
+    const otherMember = await ctx.db
+      .query("members")
+      .withIndex("by_workspace_id", (q: any) => q.eq("workspaceId", workspaceId))
+      .filter((q: any) => q.neq(q.field("userId"), userId))
+      .first();
+    if (!otherMember) throw new Error("No other user found");
+
+    // 4. Create or get DM channel
+    const channel = await ctx.db
+      .query("channels")
+      .withIndex("by_workspace_id", (q: any) => q.eq("workspaceId", workspaceId))
+      .filter((q: any) => 
+        q.and(
+          q.eq(q.field("type"), "dm"),
+          q.eq(q.field("userIds"), [userId, otherMember.userId].sort())
+        )
+      )
+      .first();
+
+    const channelId = channel?._id || await ctx.db.insert("channels", {
+      workspaceId,
+      type: "dm",
+      userIds: [userId, otherMember.userId].sort(),
+      name: "Test DM"
+    });
+
+    // 5. Send test message
+    const messageId = await ctx.db.insert("messages", {
+      channelId,
+      userId,
+      text: "This is a test message to trigger an AI response",
+      createdAt: Date.now(),
+    });
+
+    // 6. Queue AI response
+    await ctx.db.insert("aiTasks", {
+      channelId,
+      userId: otherMember.userId,
+      messageId,
+      status: "pending",
+      createdAt: Date.now(),
+    });
+
+    return {
+      channelId,
+      messageId,
+      otherUserId: otherMember.userId,
+      status: "Test message sent and AI task queued"
+    };
+  },
+});
+
+// Debug query to check pending tasks
+export const checkPendingTasks = query({
+  args: {},
+  handler: async (ctx: QueryCtx) => {
+    const tasks = await ctx.db
+      .query("aiTasks")
+      .filter((q: any) => q.eq(q.field("status"), "pending"))
+      .collect();
+    
+    return tasks.map((task: Doc<"aiTasks">) => ({
+      ...task,
+      createdAt: new Date(task.createdAt).toISOString()
+    }));
+  },
+});
+
+// Debug query to check full flow
+export const debugFullFlow = query({
+  args: {},
+  handler: async (ctx: QueryCtx) => {
+    const userId = await auth.getUserId(ctx);
+    if (!userId) return { 
+      tasks: [],
+      messages: [],
+      status: "error: not authenticated" 
+    };
+
+    try {
+      // 1. Check for pending tasks
+      const tasks = await ctx.db
+        .query("aiTasks")
+        .order("desc")
+        .take(5);
+
+      const formattedTasks = tasks.map((t: Doc<"aiTasks">) => ({
+        ...t,
+        createdAt: new Date(t.createdAt).toISOString(),
+        completedAt: t.completedAt ? new Date(t.completedAt).toISOString() : undefined
+      }));
+
+      // 2. Get messages from the most recent task's channel
+      let formattedMessages: Array<{
+        _id: Id<"messages">;
+        userId: Id<"users">;
+        channelId: Id<"channels">;
+        text: string;
+        createdAt: string;
+        userName: string;
+        isAIResponse: boolean;
+        parentMessageId?: Id<"messages">;
+      }> = [];
+      if (tasks.length > 0) {
+        const latestTask = tasks[0];
+        const messages = await ctx.db
+          .query("messages")
+          .withIndex("by_channel_id", (q: any) => q.eq("channelId", latestTask.channelId))
+          .order("desc")
+          .take(5);
+
+        formattedMessages = await Promise.all(messages.map(async (msg: Doc<"messages">) => {
+          const user = await ctx.db.get(msg.userId);
+          return {
+            ...msg,
+            userName: user?.name || "Unknown",
+            createdAt: new Date(msg.createdAt).toISOString(),
+            isAIResponse: !!msg.isAI
+          };
+        }));
+      }
+
+      return {
+        tasks: formattedTasks,
+        messages: formattedMessages,
+        status: "success"
+      };
+    } catch (error: any) {
+      return {
+        tasks: [],
+        messages: [],
+        status: `error: ${error.message}`
+      };
+    }
+  }
+});
