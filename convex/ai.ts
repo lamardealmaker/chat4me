@@ -166,16 +166,26 @@ async function generateAIResponse(
     userId: message.userId,
   });
 
-  // Build the prompt
-  const prompt = `Please respond to this message: "${message.text}"
+  // If this is a thread reply, get the parent message for context
+  let threadContext = "";
+  if (message.parentMessageId) {
+    const parentMessage = await ctx.runQuery(api.messages.getMessage, { messageId: message.parentMessageId });
+    if (parentMessage) {
+      threadContext = `\nThis is a reply to the following message: "${parentMessage.text}"
+Please ensure your response is relevant to this specific conversation thread.`;
+    }
+  }
 
-Here is context of possible answers:
+  // Build the prompt
+  const prompt = `Please respond to this message: "${message.text}"${threadContext}
+
+${message.parentMessageId ? 'Here are some similar thread responses for context:' : 'Here is context of possible answers:'}
 ${similarMessages.map(m => `- ${m.text}`).join('\n')}
 
 Here is the user's writing style and tone (examples from their 25 latest messages):
 ${recentMessages.map((m: Doc<"messages">) => `- ${m.text}`).join('\n')}
 
-Output answer using the user's style and personality.`;
+${message.parentMessageId ? 'Keep the response focused on the thread topic and parent message context.' : 'Output answer using the user\'s style and personality.'}`;
 
   // Call OpenAI for response
   const response = await fetch("https://api.openai.com/v1/chat/completions", {
@@ -185,11 +195,14 @@ Output answer using the user's style and personality.`;
       Authorization: `Bearer ${apiKey}`,
     },
     body: JSON.stringify({
+        // dont change model name
       model: "gpt-4o-mini",
       messages: [
         {
           role: "system",
-          content: "You are an AI assistant responding on behalf of a user. Match their writing style, tone, and personality while providing helpful responses.",
+          content: message.parentMessageId 
+            ? "You are an AI assistant responding in a message thread. Focus on the specific conversation context while matching the user's style."
+            : "You are an AI assistant responding on behalf of a user. Match their writing style, tone, and personality while providing helpful responses.",
         },
         {
           role: "user",
