@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useRef, useEffect } from "react";
 import { api } from "../../../../../../convex/_generated/api";
 import { useQuery, useMutation } from "convex/react";
 import { Input } from "@/components/ui/input";
@@ -34,12 +34,29 @@ export function ThreadPanel({
   const params = useParams();
   const workspaceId = params.workspaceId as Id<"workspaces">;
   const [text, setText] = useState("");
+  const [isFirstLoad, setIsFirstLoad] = useState(true);
+  const messagesEndRef = useRef<HTMLDivElement>(null);
   const parentMessage = useQuery(api.messages.get, {
     messageId: parentMessageId,
   });
   const threadMessages = useQuery(api.messages.listThread, {
     parentMessageId,
   });
+
+  // Initial scroll to bottom without animation
+  useEffect(() => {
+    if (threadMessages && isFirstLoad) {
+      messagesEndRef.current?.scrollIntoView();
+      setIsFirstLoad(false);
+    }
+  }, [threadMessages, isFirstLoad]);
+
+  // Smooth scroll to bottom for new messages
+  useEffect(() => {
+    if (!isFirstLoad && threadMessages) {
+      messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
+    }
+  }, [threadMessages, isFirstLoad]);
 
   const sendMessage = useMutation(api.messages.send);
   const toggleReaction = useMutation(api.messages.toggleReaction);
@@ -147,6 +164,8 @@ export function ThreadPanel({
             <MessageWithReactions key={msg._id} message={msg} />
           ))
         )}
+        {/* Invisible div for scrolling to bottom */}
+        <div ref={messagesEndRef} />
       </div>
 
       <div className="mt-2">
