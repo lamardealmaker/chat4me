@@ -21,6 +21,7 @@ import { useGetChannels } from "@/app/features/channels/api/use-get-channels";
 import { cn } from "@/lib/utils";
 import { useCurrentUser } from "@/app/features/auth/api/use-current-user";
 import { SummaryDropdown } from "@/components/ui/summary-dropdown";
+import { UserActionMenu } from "@/components/ui/user-action-menu";
 
 const EMOJI_MAP: Record<string, string> = {
   thumbs_up: "👍",
@@ -141,7 +142,12 @@ export default function ChannelPage() {
         <div className="border border-emerald-100 p-3 rounded-lg hover:bg-emerald-50/50 transition bg-white shadow-sm">
           <div className="text-sm text-emerald-800 flex justify-between items-center mb-2">
             <div className="flex items-center gap-2">
-              <strong className="font-medium text-emerald-900">{msg.userName}</strong>
+              <UserActionMenu 
+                userId={msg.userId as Id<"users">}
+                userName={msg.userName}
+              >
+                <strong className="font-medium text-emerald-900">{msg.userName}</strong>
+              </UserActionMenu>
               {msg.isAI && (
                 <span className="text-xs text-emerald-400 flex items-center gap-1">
                   <span className="inline-block w-3 h-3">🤖</span>

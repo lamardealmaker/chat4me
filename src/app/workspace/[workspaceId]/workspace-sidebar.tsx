@@ -20,6 +20,7 @@ import { Button } from "@/components/ui/button";
 import { useRouter, usePathname } from "next/navigation";
 import { useCreateDM } from "@/app/features/channels/api/use-create-dm";
 import { MessagePresence } from "@/app/features/presence/components/message-presence";
+import { UserActionMenu } from "@/components/ui/user-action-menu";
 
 export const WorkspacesSidebar = () => {
   const router = useRouter();
@@ -161,9 +162,8 @@ export const WorkspacesSidebar = () => {
 
               <div className="mt-2 pt-2 border-t border-white/10">
                 {otherMembers.map((member) => (
-                  <button
+                  <div
                     key={member._id}
-                    onClick={() => handleUserClick(member.user?._id as Id<"users">)}
                     className="flex items-center gap-x-2 px-2 py-1 w-full hover:bg-zinc-700/10 dark:hover:bg-zinc-700/50 transition rounded-md text-sm relative"
                   >
                     <MessagePresence 
@@ -171,8 +171,13 @@ export const WorkspacesSidebar = () => {
                       userId={member.user?._id as Id<"users">}
                       className="h-2 w-2"
                     />
-                    <span>{member.user?.name}</span>
-                  </button>
+                    <UserActionMenu 
+                      userId={member.user?._id as Id<"users">}
+                      userName={member.user?.name || ""}
+                    >
+                      {member.user?.name}
+                    </UserActionMenu>
+                  </div>
                 ))}
               </div>
             </WorkspaceSection>
