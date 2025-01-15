@@ -375,3 +375,127 @@ export const debugFullFlow = query({
     }
   }
 });
+
+// Internal query to get channel
+export const getChannel = internalQuery({
+  args: { channelId: v.id("channels") },
+  handler: async (ctx: QueryCtx, { channelId }) => {
+    return await ctx.db
+      .query("channels")
+      .filter((q) => q.eq(q.field("_id"), channelId))
+      .first();
+  },
+});
+
+// Internal query to check workspace membership
+export const checkMembership = internalQuery({
+  args: { 
+    workspaceId: v.id("workspaces"),
+    userId: v.id("users")
+  },
+  handler: async (ctx: QueryCtx, { workspaceId, userId }) => {
+    return await ctx.db
+      .query("members")
+      .withIndex("by_workspace_id_and_user_id", (q) =>
+        q.eq("workspaceId", workspaceId).eq("userId", userId)
+      )
+      .first();
+  },
+});
+
+export const generateSummary = action({
+  args: {
+    channelId: v.id("channels"),
+    threadId: v.optional(v.id("messages")),
+    type: v.union(v.literal("channel"), v.literal("dm"), v.literal("thread")),
+  },
+  handler: async (ctx, { channelId, threadId, type }) => {
+    const userId = await auth.getUserId(ctx);
+    if (!userId) throw new Error("Unauthorized");
+
+    // Get channel using internal query
+    const channel = await ctx.runQuery(internal.ai.getChannel, { channelId });
+    if (!channel) throw new Error("Channel not found");
+
+    // Verify workspace membership using internal query
+    const member = await ctx.runQuery(internal.ai.checkMembership, {
+      workspaceId: channel.workspaceId,
+      userId
+    });
+    if (!member) throw new Error("Not a member of this workspace");
+
+    // Fetch messages based on type
+    let messages;
+    if (type === "thread" && threadId) {
+      messages = await ctx.runQuery(api.messages.listThread, { parentMessageId: threadId });
+      
+      // Add the parent message
+      const parentMessage = await ctx.runQuery(api.messages.getById, { messageId: threadId });
+      if (parentMessage) {
+        messages = [parentMessage, ...messages];
+      }
+    } else {
+      messages = await ctx.runQuery(api.messages.listRecent, { 
+        channelId,
+        hours: 24
+      });
+    }
+
+    if (!messages || messages.length === 0) {
+      return "No messages found to summarize.";
+    }
+
+    // Sort messages by timestamp
+    messages.sort((a, b) => a.createdAt - b.createdAt);
+
+    // Build conversation context
+    const conversationContext = messages
+      .map((msg) => `${msg.userName || 'Unknown'}: ${msg.text}`)
+      .join("\n");
+
+    // Generate summary prompt based on type
+    let prompt = "";
+    if (type === "channel") {
+      prompt = `Here's the last 24 hours of channel messages:\n\n${conversationContext}\n\nProvide a clear and concise summary of the key discussions and decisions from these channel messages.`;
+    } else if (type === "dm") {
+      prompt = `Here's the last 24 hours of direct messages:\n\n${conversationContext}\n\nProvide a clear and concise summary of the key points from this conversation.`;
+    } else {
+      prompt = `Here's a thread discussion:\n\n${conversationContext}\n\nProvide a clear and concise summary of this thread's discussion and any conclusions reached.`;
+    }
+
+    // Call OpenAI for summary
+    const apiKey = process.env.OPENAI_API_KEY;
+    if (!apiKey) {
+      throw new Error("OPENAI_API_KEY environment variable not set");
+    }
+
+    const response = await fetch("https://api.openai.com/v1/chat/completions", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${apiKey}`,
+      },
+      body: JSON.stringify({
+        model: "gpt-4o-mini",
+        messages: [
+          {
+            role: "system",
+            content: "You are a helpful assistant that provides clear, concise summaries of chat conversations.",
+          },
+          {
+            role: "user",
+            content: prompt,
+          },
+        ],
+        temperature: 0.7,
+      }),
+    });
+
+    if (!response.ok) {
+      throw new Error(`OpenAI API error: ${response.statusText}`);
+    }
+
+    const result = await response.json();
+    return result.choices[0].message.content;
+  },
+});

@@ -20,6 +20,7 @@ import { InviteModal } from "../../invite-modal";
 import { useGetChannels } from "@/app/features/channels/api/use-get-channels";
 import { cn } from "@/lib/utils";
 import { useCurrentUser } from "@/app/features/auth/api/use-current-user";
+import { SummaryDropdown } from "@/components/ui/summary-dropdown";
 
 const EMOJI_MAP: Record<string, string> = {
   thumbs_up: "👍",
@@ -350,19 +351,17 @@ export default function ChannelPage() {
         </div>
 
         {/* Fixed input at bottom */}
-        <div className="px-2 py-4 border-t bg-white">
-          <div className="flex items-center gap-2">
-            <Button
-              variant="ghost"
-              size="icon"
-              className="shrink-0 text-gray-700 hover:text-gray-900 rounded-full p-2 hover:bg-gray-100 bg-gray-50"
-              onClick={() => {/* TODO: Add attachment handler */}}
-            >
-              <Plus className="h-5 w-5" />
-            </Button>
+        <div className="p-2 border-t bg-white">
+          <div className="flex gap-2">
+            <SummaryDropdown 
+              channelId={channelId as string} 
+              isThread={!!selectedThread}
+              isDM={currentChannel?.type === "dm"}
+              threadId={selectedThread?.toString()}
+            />
             <div className="relative flex-1">
               <Input
-                placeholder={currentChannel?.type === "dm" ? "Send DM" : "Share something"}
+                placeholder="Type a message..."
                 value={text}
                 onChange={(e) => setText(e.target.value)}
                 onKeyDown={(e) => {

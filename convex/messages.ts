@@ -355,3 +355,29 @@ export const getMessage = query({
     return await ctx.db.get(messageId);
   },
 });
+
+export const listRecent = query({
+  args: { 
+    channelId: v.id("channels"),
+    hours: v.number()
+  },
+  handler: async (ctx, { channelId, hours }) => {
+    const cutoffTime = Date.now() - hours * 60 * 60 * 1000;
+    const messages = await ctx.db
+      .query("messages")
+      .withIndex("by_channel_id", (q) => q.eq("channelId", channelId))
+      .filter((q) => q.gt(q.field("createdAt"), cutoffTime))
+      .collect();
+
+    const results = [];
+    for (const msg of messages) {
+      const userDoc = await ctx.db.get(msg.userId);
+      results.push({
+        ...msg,
+        userName: userDoc?.name || "Unknown"
+      });
+    }
+
+    return results;
+  }
+});
