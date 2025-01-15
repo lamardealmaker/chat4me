@@ -147,12 +147,21 @@ export const list = query({
     workspaceId: v.id("workspaces"),
   },
   handler: async (ctx, args) => {
+    const userId = await auth.getUserId(ctx);
+    if (!userId) return [];
+
     const presence = await ctx.db
       .query("userPresence")
       .withIndex("by_workspace", (q) => q.eq("workspaceId", args.workspaceId))
-      .filter((q) => q.eq(q.field("status"), "online"))
       .collect();
 
-    return presence;
+    // Mark users as offline if they haven't been seen in 2 minutes
+    const TWO_MINUTES = 2 * 60 * 1000;
+    const now = Date.now();
+
+    return presence.map(record => ({
+      ...record,
+      status: now - record.lastSeen > TWO_MINUTES ? "offline" : record.status
+    }));
   },
 }); 

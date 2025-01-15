@@ -7,7 +7,7 @@ import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Id } from "../../../../../../convex/_generated/dataModel";
 import { EmojiPicker } from "@/components/emoji-picker";
-import { Smile } from "lucide-react";
+import { Smile, Plus } from "lucide-react";
 import { MessagePresence } from "@/app/features/presence/components/message-presence";
 import { useParams } from "next/navigation";
 
@@ -173,22 +173,33 @@ export function ThreadPanel({
       </div>
 
       {/* Reply input - fixed at bottom */}
-      <div className="p-4 border-t border-emerald-100 bg-white shrink-0">
-        <div className="flex gap-2">
-          <Input
-            placeholder="Reply in thread..."
-            value={text}
-            onChange={(e) => setText(e.target.value)}
-            onKeyDown={(e) => {
-              if (e.key === "Enter" && !e.shiftKey) {
-                e.preventDefault();
-                handleReply();
-              }
-            }}
-          />
+      <div className="px-4 py-6 border-t border-emerald-100 bg-white shrink-0">
+        <div className="flex items-center gap-2">
+          <Button
+            variant="ghost"
+            size="icon"
+            className="shrink-0 text-gray-700 hover:text-gray-900 rounded-full p-2 hover:bg-gray-100 bg-gray-50"
+            onClick={() => {/* TODO: Add attachment handler */}}
+          >
+            <Plus className="h-5 w-5" />
+          </Button>
+          <div className="relative flex-1">
+            <Input
+              placeholder="Reply to thread"
+              value={text}
+              onChange={(e) => setText(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter" && !e.shiftKey) {
+                  e.preventDefault();
+                  handleReply();
+                }
+              }}
+              className="rounded-full bg-gray-100 border-0 focus-visible:ring-0 focus-visible:ring-offset-0 pl-4 pr-4"
+            />
+          </div>
           <Button 
             onClick={handleReply}
-            className="bg-emerald-600 hover:bg-emerald-700"
+            className="bg-emerald-600 hover:bg-emerald-700 shrink-0"
           >
             Reply
           </Button>

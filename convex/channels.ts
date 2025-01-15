@@ -121,22 +121,26 @@ export const get = query({
       )
       .collect();
 
-    // Debug log
-    console.log("All channels:", channels);
-    console.log("Current userId:", userId);
+    // For DM channels, update names with current user names
+    const enhancedChannels = await Promise.all(channels.map(async channel => {
+      if (channel.type === "dm" && channel.userIds) {
+        const otherUserId = channel.userIds.find(id => id !== userId);
+        if (otherUserId) {
+          const otherUser = await ctx.db.get(otherUserId);
+          return {
+            ...channel,
+            name: otherUser?.name || "Unknown User"
+          };
+        }
+      }
+      return channel;
+    }));
 
     // Filter DM channels to only include ones where user is a participant
-    const filteredChannels = channels.filter(channel => {
-      if (channel.type === "dm") {
-        console.log("DM channel:", channel);
-        console.log("Has userIds:", !!channel.userIds);
-        console.log("Includes user:", channel.userIds?.includes(userId));
-      }
-      return channel.type !== "dm" || 
-        (channel.userIds && channel.userIds.includes(userId));
-    });
-
-    return filteredChannels;
+    return enhancedChannels.filter(channel => 
+      channel.type !== "dm" || 
+      (channel.userIds && channel.userIds.includes(userId))
+    );
   },
 });
 

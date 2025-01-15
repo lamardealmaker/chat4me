@@ -10,7 +10,7 @@ import { ThreadPanel } from "./thread-panel";
 import { useQuery, useMutation } from "convex/react";
 import { api } from "../../../../../../convex/_generated/api";
 import { EmojiPicker } from "@/components/emoji-picker";
-import { MessageSquare, Users, UserPlus, Smile, Hash, Circle } from "lucide-react";
+import { MessageSquare, Users, UserPlus, Smile, Hash, Circle, Plus } from "lucide-react";
 import { Id } from "../../../../../../convex/_generated/dataModel";
 import { MessagePresence } from "@/app/features/presence/components/message-presence";
 import { usePresence } from "@/app/features/presence/hooks/use-presence";
@@ -119,7 +119,6 @@ export default function ChannelPage() {
       await sendMessage({ 
         channelId: channelId as Id<"channels">, 
         text,
-        parentMessageId: selectedThread || undefined
       });
       setText("");
     } catch (error) {
@@ -351,22 +350,33 @@ export default function ChannelPage() {
         </div>
 
         {/* Fixed input at bottom */}
-        <div className="p-2 border-t bg-white">
-          <div className="flex gap-2">
-            <Input
-              placeholder="Type a message..."
-              value={text}
-              onChange={(e) => setText(e.target.value)}
-              onKeyDown={(e) => {
-                if (e.key === "Enter" && !e.shiftKey) {
-                  e.preventDefault();
-                  handleSend();
-                }
-              }}
-            />
+        <div className="px-2 py-4 border-t bg-white">
+          <div className="flex items-center gap-2">
+            <Button
+              variant="ghost"
+              size="icon"
+              className="shrink-0 text-gray-700 hover:text-gray-900 rounded-full p-2 hover:bg-gray-100 bg-gray-50"
+              onClick={() => {/* TODO: Add attachment handler */}}
+            >
+              <Plus className="h-5 w-5" />
+            </Button>
+            <div className="relative flex-1">
+              <Input
+                placeholder={currentChannel?.type === "dm" ? "Send DM" : "Share something"}
+                value={text}
+                onChange={(e) => setText(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter" && !e.shiftKey) {
+                    e.preventDefault();
+                    handleSend();
+                  }
+                }}
+                className="rounded-full bg-gray-100 border-0 focus-visible:ring-0 focus-visible:ring-offset-0 pl-4 pr-4"
+              />
+            </div>
             <Button 
               onClick={handleSend}
-              className="bg-emerald-600 hover:bg-emerald-700"
+              className="bg-emerald-600 hover:bg-emerald-700 shrink-0"
             >
               Send
             </Button>
