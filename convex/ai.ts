@@ -325,8 +325,8 @@ export const testAIResponse = mutation({
       createdAt: Date.now(),
     });
 
-    // 6. Queue AI response
-    await ctx.db.insert("aiTasks", {
+    // 6. Queue AI response.
+    await ctx.db.insert("aiTasks",   {
       channelId,
       userId: otherMember.userId,
       messageId,
