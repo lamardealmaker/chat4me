@@ -22,7 +22,7 @@ import { cn } from "@/lib/utils";
 import { useCurrentUser } from "@/app/features/auth/api/use-current-user";
 import { SummaryDropdown } from "@/components/ui/summary-dropdown";
 import { UserActionMenu } from "@/components/ui/user-action-menu";
-import { ImageGenerationDialog } from "@/components/ui/image-generation-dialog";
+import { ImageGenerationDialog } from "../../../../../components/ui/image-generation-dialog";
 import Image from "next/image";
 
 const EMOJI_MAP: Record<string, string> = {
@@ -414,13 +414,7 @@ export default function ChannelPage() {
                 className="rounded-full bg-gray-100 border-0 focus-visible:ring-0 focus-visible:ring-offset-0 pl-4 pr-4"
               />
             </div>
-            <Button 
-              onClick={() => setShowImageDialog(true)}
-              variant="outline"
-              className="shrink-0"
-            >
-              <ImageIcon className="h-4 w-4" />
-            </Button>
+
             <Button 
               onClick={handleSend}
               className="bg-emerald-600 hover:bg-emerald-700 shrink-0"

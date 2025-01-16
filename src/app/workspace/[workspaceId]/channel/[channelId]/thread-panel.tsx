@@ -214,13 +214,7 @@ export function ThreadPanel({
               className="rounded-full bg-gray-100 border-0 focus-visible:ring-0 focus-visible:ring-offset-0 pl-4 pr-4"
             />
           </div>
-          <Button 
-            onClick={() => setShowImageDialog(true)}
-            variant="outline"
-            className="shrink-0"
-          >
-            <ImageIcon className="h-4 w-4" />
-          </Button>
+ 
           <Button 
             onClick={handleReply}
             className="bg-emerald-600 hover:bg-emerald-700 shrink-0"

@@ -38,11 +38,12 @@ export function ImageGenerationDialog({ open, onOpenChange, channelId, threadId 
   const [prompt, setPrompt] = useState("");
   const [error, setError] = useState<string | null>(null);
   const generateImage = useAction(api.actions.generateDalleImage.default);
-  const getStorageUrl = useMutation(api.messages.getStorageUrl);
+  const sendImageMessage = useMutation(api.messages.sendConfirmedImageMessage);
   const [isLoading, setIsLoading] = useState(false);
   const { toast } = useToast();
   const [previewImage, setPreviewImage] = useState<string | null>(null);
   const [showConfirmDialog, setShowConfirmDialog] = useState(false);
+  const [generatedImageData, setGeneratedImageData] = useState<{ storageId: string; imageUrl: string } | null>(null);
 
   const handleGenerate = async () => {
     if (!prompt.trim()) return;
@@ -51,15 +52,14 @@ export function ImageGenerationDialog({ open, onOpenChange, channelId, threadId 
     setError(null);
     
     try {
-      const storageId = await generateImage({
+      const result = await generateImage({
         prompt: prompt.trim(),
         channelId,
         threadId,
       });
       
-      // Get the actual URL from Convex
-      const url = await getStorageUrl({ storageId });
-      setPreviewImage(url);
+      setPreviewImage(result.imageUrl);
+      setGeneratedImageData(result);
       setShowConfirmDialog(true);
     } catch (error) {
       console.error("Failed to generate image:", error);
@@ -76,28 +76,58 @@ export function ImageGenerationDialog({ open, onOpenChange, channelId, threadId 
     }
   };
 
-  const handleConfirm = () => {
-    // Close both dialogs and reset state
-    setShowConfirmDialog(false);
-    onOpenChange(false);
-    setPrompt("");
-    setPreviewImage(null);
-    
-    toast({
-      title: "Image Sent",
-      description: "Your DALL·E image has been added to the chat",
-    });
+  const handleConfirm = async () => {
+    if (!generatedImageData) return;
+
+    try {
+      await sendImageMessage({
+        channelId,
+        threadId,
+        storageId: generatedImageData.storageId,
+        prompt: prompt.trim(),
+      });
+
+      // Close both dialogs and reset state
+      setShowConfirmDialog(false);
+      onOpenChange(false);
+      setPrompt("");
+      setPreviewImage(null);
+      setGeneratedImageData(null);
+      
+      toast({
+        title: "Image Sent",
+        description: "Your DALL·E image has been added to the chat",
+      });
+    } catch (error) {
+      console.error("Failed to send image:", error);
+      const errorMessage = error instanceof Error ? error.message : "Failed to send image";
+      
+      toast({
+        title: "Error",
+        description: errorMessage,
+        variant: "destructive",
+      });
+    }
   };
 
   const handleCancel = () => {
     // Just close the confirm dialog and keep the generation dialog open
     setShowConfirmDialog(false);
     setPreviewImage(null);
+    setGeneratedImageData(null);
+  };
+
+  const handleClose = () => {
+    onOpenChange(false);
+    setPrompt("");
+    setPreviewImage(null);
+    setGeneratedImageData(null);
+    setError(null);
   };
 
   return (
     <>
-      <Dialog open={open} onOpenChange={onOpenChange}>
+      <Dialog open={open} onOpenChange={handleClose}>
         <DialogContent className="sm:max-w-[425px]">
           <DialogHeader>
             <DialogTitle>Generate Image</DialogTitle>

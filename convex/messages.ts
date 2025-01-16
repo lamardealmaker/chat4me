@@ -432,3 +432,30 @@ export const getStorageUrl = mutation({
     return url;
   },
 });
+
+export const sendConfirmedImageMessage = mutation({
+  args: {
+    channelId: v.id("channels"),
+    threadId: v.optional(v.id("messages")),
+    storageId: v.string(),
+    prompt: v.string(),
+  },
+  handler: async (ctx, args) => {
+    const userId = await auth.getUserId(ctx);
+    if (!userId) throw new Error("Not authenticated");
+
+    const message = await ctx.db.insert("messages", {
+      channelId: args.channelId,
+      userId,
+      text: args.prompt,
+      format: "dalle",
+      storageId: args.storageId,
+      formattedText: `![${args.prompt}](${args.storageId})`,
+      createdAt: Date.now(),
+      parentMessageId: args.threadId,
+      isAI: false,
+    });
+
+    return message;
+  },
+});

@@ -49,14 +49,10 @@ export default action({
     // Store in Convex storage
     const storageId = await ctx.storage.store(imageBlob);
 
-    // Create message with image
-    await ctx.runMutation(internal.messages.sendImageMessage, {
-      channelId: args.channelId,
-      threadId: args.threadId,
+    // Return both the storage ID and temporary URL
+    return {
       storageId,
-      prompt: args.prompt,
-    });
-
-    return storageId;
+      imageUrl
+    };
   },
 }); 
