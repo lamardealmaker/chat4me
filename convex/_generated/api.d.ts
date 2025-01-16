@@ -13,6 +13,7 @@ import type {
   FilterApi,
   FunctionReference,
 } from "convex/server";
+import type * as actions_generateDalleImage from "../actions/generateDalleImage.js";
 import type * as ai from "../ai.js";
 import type * as auth from "../auth.js";
 import type * as channels from "../channels.js";
@@ -34,6 +35,7 @@ import type * as workspaces from "../workspaces.js";
  * ```
  */
 declare const fullApi: ApiFromModules<{
+  "actions/generateDalleImage": typeof actions_generateDalleImage;
   ai: typeof ai;
   auth: typeof auth;
   channels: typeof channels;

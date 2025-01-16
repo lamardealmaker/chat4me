@@ -7,10 +7,13 @@ import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Id } from "../../../../../../convex/_generated/dataModel";
 import { EmojiPicker } from "@/components/emoji-picker";
-import { Smile, Plus } from "lucide-react";
+import { Smile, Plus, ImageIcon } from "lucide-react";
 import { MessagePresence } from "@/app/features/presence/components/message-presence";
 import { useParams } from "next/navigation";
 import { SummaryDropdown } from "@/components/ui/summary-dropdown";
+import { ImageGenerationDialog } from "@/components/ui/image-generation-dialog";
+import Image from "next/image";
+import { useSendMessage } from "@/app/features/messages/api/use-send-message";
 
 const EMOJI_MAP: Record<string, string> = {
   thumbs_up: "👍",
@@ -43,6 +46,9 @@ export function ThreadPanel({
   const threadMessages = useQuery(api.messages.listThread, {
     parentMessageId,
   });
+  const [showImageDialog, setShowImageDialog] = useState(false);
+  const sendMessage = useSendMessage();
+  const toggleReaction = useMutation(api.messages.toggleReaction);
 
   // Initial scroll to bottom without animation
   useEffect(() => {
@@ -58,9 +64,6 @@ export function ThreadPanel({
       messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
     }
   }, [threadMessages, isFirstLoad]);
-
-  const sendMessage = useMutation(api.messages.send);
-  const toggleReaction = useMutation(api.messages.toggleReaction);
 
   const handleReaction = async (messageId: Id<"messages">, emoji: string) => {
     try {
@@ -105,7 +108,23 @@ export function ThreadPanel({
           </span>
         </div>
       </div>
-      <div className="text-sm text-emerald-900 leading-relaxed">{message.text}</div>
+      {message.format === "dalle" && message.imageUrl ? (
+        <div className="relative aspect-square w-64 rounded-lg overflow-hidden bg-muted">
+          <Image
+            src={message.imageUrl}
+            alt={message.text}
+            fill
+            className="object-cover"
+            sizes="(max-width: 768px) 100vw, (max-width: 1200px) 50vw, 33vw"
+            priority={false}
+          />
+          <div className="absolute bottom-0 left-0 right-0 bg-gradient-to-t from-black/50 to-transparent p-2">
+            <p className="text-xs text-white line-clamp-2">{message.text}</p>
+          </div>
+        </div>
+      ) : (
+        <div className="text-sm text-emerald-900 leading-relaxed">{message.text}</div>
+      )}
       
       {/* Reactions */}
       <div className="mt-3 flex flex-wrap gap-1">
@@ -196,6 +215,13 @@ export function ThreadPanel({
             />
           </div>
           <Button 
+            onClick={() => setShowImageDialog(true)}
+            variant="outline"
+            className="shrink-0"
+          >
+            <ImageIcon className="h-4 w-4" />
+          </Button>
+          <Button 
             onClick={handleReply}
             className="bg-emerald-600 hover:bg-emerald-700 shrink-0"
           >
@@ -203,6 +229,13 @@ export function ThreadPanel({
           </Button>
         </div>
       </div>
+
+      <ImageGenerationDialog
+        open={showImageDialog}
+        onOpenChange={setShowImageDialog}
+        channelId={parentMessage.channelId}
+        threadId={parentMessageId}
+      />
     </div>
   );
 } 

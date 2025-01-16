@@ -10,16 +10,19 @@ import { Button } from "@/components/ui/button";
 import { Plus } from "lucide-react";
 import { useState } from "react";
 import { SummaryDialog } from "@/components/ui/summary-dialog";
+import { ImageGenerationDialog } from "@/components/ui/image-generation-dialog";
+import { Id } from "../../../convex/_generated/dataModel";
 
 interface SummaryDropdownProps {
-  channelId: string;
+  channelId: Id<"channels">;
   isThread?: boolean;
   isDM?: boolean;
-  threadId?: string;
+  threadId?: Id<"messages">;
 }
 
 export const SummaryDropdown = ({ channelId, isThread, isDM, threadId }: SummaryDropdownProps) => {
   const [dialogOpen, setDialogOpen] = useState(false);
+  const [imageDialogOpen, setImageDialogOpen] = useState(false);
   const [summaryType, setSummaryType] = useState<"channel" | "dm" | "thread">("channel");
 
   const handleSummaryClick = (type: "channel" | "dm" | "thread") => {
@@ -36,6 +39,9 @@ export const SummaryDropdown = ({ channelId, isThread, isDM, threadId }: Summary
           </Button>
         </DropdownMenuTrigger>
         <DropdownMenuContent align="start" side="top" className="w-48">
+          <DropdownMenuItem onClick={() => setImageDialogOpen(true)}>
+            Generate Image
+          </DropdownMenuItem>
           {!isThread && !isDM && (
             <DropdownMenuItem onClick={() => handleSummaryClick("channel")}>
               Summarize messages
@@ -58,6 +64,13 @@ export const SummaryDropdown = ({ channelId, isThread, isDM, threadId }: Summary
         open={dialogOpen} 
         onOpenChange={setDialogOpen}
         summaryType={summaryType}
+        channelId={channelId}
+        threadId={threadId}
+      />
+
+      <ImageGenerationDialog
+        open={imageDialogOpen}
+        onOpenChange={setImageDialogOpen}
         channelId={channelId}
         threadId={threadId}
       />

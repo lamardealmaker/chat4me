@@ -10,7 +10,7 @@ import { ThreadPanel } from "./thread-panel";
 import { useQuery, useMutation } from "convex/react";
 import { api } from "../../../../../../convex/_generated/api";
 import { EmojiPicker } from "@/components/emoji-picker";
-import { MessageSquare, Users, UserPlus, Smile, Hash, Circle, Plus } from "lucide-react";
+import { MessageSquare, Users, UserPlus, Smile, Hash, Circle, Plus, ImageIcon } from "lucide-react";
 import { Id } from "../../../../../../convex/_generated/dataModel";
 import { MessagePresence } from "@/app/features/presence/components/message-presence";
 import { usePresence } from "@/app/features/presence/hooks/use-presence";
@@ -22,6 +22,8 @@ import { cn } from "@/lib/utils";
 import { useCurrentUser } from "@/app/features/auth/api/use-current-user";
 import { SummaryDropdown } from "@/components/ui/summary-dropdown";
 import { UserActionMenu } from "@/components/ui/user-action-menu";
+import { ImageGenerationDialog } from "@/components/ui/image-generation-dialog";
+import Image from "next/image";
 
 const EMOJI_MAP: Record<string, string> = {
   thumbs_up: "👍",
@@ -75,6 +77,7 @@ export default function ChannelPage() {
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const [isFirstLoad, setIsFirstLoad] = useState(true);
   const [inviteModalOpen, setInviteModalOpen] = useState(false);
+  const [showImageDialog, setShowImageDialog] = useState(false);
   
   // Initialize presence
   usePresence(workspaceId);
@@ -183,7 +186,23 @@ export default function ChannelPage() {
               </Button>
             </div>
           </div>
-          <div className="text-sm text-emerald-900 leading-relaxed">{msg.text}</div>
+          {msg.format === "dalle" && msg.imageUrl ? (
+            <div className="relative aspect-square w-64 rounded-lg overflow-hidden bg-muted">
+              <Image
+                src={msg.imageUrl}
+                alt={msg.text}
+                fill
+                className="object-cover"
+                sizes="(max-width: 768px) 100vw, (max-width: 1200px) 50vw, 33vw"
+                priority={false}
+              />
+              <div className="absolute bottom-0 left-0 right-0 bg-gradient-to-t from-black/50 to-transparent p-2">
+                <p className="text-xs text-white line-clamp-2">{msg.text}</p>
+              </div>
+            </div>
+          ) : (
+            <div className="text-sm text-emerald-900 leading-relaxed">{msg.text}</div>
+          )}
           <div className="mt-3 flex flex-wrap gap-1">
             {Object.entries(msg.reactions || {}).map(([code, data]: [string, any]) => (
               <button
@@ -234,9 +253,25 @@ export default function ChannelPage() {
             ? "bg-emerald-600 text-white rounded-br-none" 
             : "bg-gray-100 text-emerald-900 rounded-bl-none"
         )}>
-          <div className="text-sm leading-relaxed break-words">
-            {msg.text}
-          </div>
+          {msg.format === "dalle" && msg.imageUrl ? (
+            <div className="relative aspect-square w-64 rounded-lg overflow-hidden bg-muted">
+              <Image
+                src={msg.imageUrl}
+                alt={msg.text}
+                fill
+                className="object-cover"
+                sizes="(max-width: 768px) 100vw, (max-width: 1200px) 50vw, 33vw"
+                priority={false}
+              />
+              <div className="absolute bottom-0 left-0 right-0 bg-gradient-to-t from-black/50 to-transparent p-2">
+                <p className="text-xs text-white line-clamp-2">{msg.text}</p>
+              </div>
+            </div>
+          ) : (
+            <div className="text-sm leading-relaxed break-words">
+              {msg.text}
+            </div>
+          )}
           {(replyCount > 0 || msg.reactions) && (
             <div className={cn(
               "mt-2 pt-2",
@@ -360,10 +395,10 @@ export default function ChannelPage() {
         <div className="p-2 border-t bg-white">
           <div className="flex gap-2">
             <SummaryDropdown 
-              channelId={channelId as string} 
+              channelId={channelId as Id<"channels">}
               isThread={!!selectedThread}
               isDM={currentChannel?.type === "dm"}
-              threadId={selectedThread?.toString()}
+              threadId={selectedThread || undefined}
             />
             <div className="relative flex-1">
               <Input
@@ -380,6 +415,13 @@ export default function ChannelPage() {
               />
             </div>
             <Button 
+              onClick={() => setShowImageDialog(true)}
+              variant="outline"
+              className="shrink-0"
+            >
+              <ImageIcon className="h-4 w-4" />
+            </Button>
+            <Button 
               onClick={handleSend}
               className="bg-emerald-600 hover:bg-emerald-700 shrink-0"
             >
@@ -395,6 +437,12 @@ export default function ChannelPage() {
           <ThreadPanel parentMessageId={selectedThread} onClose={() => setSelectedThread(null)} />
         </div>
       )}
+
+      <ImageGenerationDialog
+        open={showImageDialog}
+        onOpenChange={setShowImageDialog}
+        channelId={channelId as Id<"channels">}
+      />
     </div>
   );
 }

@@ -1,7 +1,9 @@
-import { mutation, query } from "./_generated/server";
+import { mutation, query, internalMutation } from "./_generated/server";
 import { v } from "convex/values";
 import { auth } from "./auth";
 import { api, internal } from "./_generated/api";
+import { Doc, Id } from "./_generated/dataModel";
+import { MutationCtx, QueryCtx, DatabaseReader, DatabaseWriter } from "./_generated/server";
 
 export const getById = query({
   args: { messageId: v.id("messages") },
@@ -137,10 +139,17 @@ export const list = query({
         return acc;
       }, {} as Record<string, { count: number; users: string[]; emoji: string }>);
 
+      // Handle image URLs for DALL-E images
+      let imageUrl = undefined;
+      if (msg.format === "dalle" && msg.storageId) {
+        imageUrl = await ctx.storage.getUrl(msg.storageId);
+      }
+
       results.push({
         ...msg,
         userName: userDoc?.name || "Unknown",
         reactions: reactionGroups,
+        imageUrl,
       });
     }
 
@@ -202,10 +211,17 @@ export const listThread = query({
         return acc;
       }, {} as Record<string, { count: number; users: string[]; emoji: string }>);
 
+      // Handle image URLs for DALL-E images
+      let imageUrl = undefined;
+      if (msg.format === "dalle" && msg.storageId) {
+        imageUrl = await ctx.storage.getUrl(msg.storageId);
+      }
+
       results.push({
         ...msg,
         userName: userDoc?.name || "Unknown",
         reactions: reactionGroups,
+        imageUrl,
       });
     }
     return results;
@@ -380,4 +396,39 @@ export const listRecent = query({
 
     return results;
   }
+});
+
+export const sendImageMessage = internalMutation({
+  args: {
+    channelId: v.id("channels"),
+    threadId: v.optional(v.id("messages")),
+    storageId: v.string(),
+    prompt: v.string(),
+  },
+  handler: async (ctx, args) => {
+    const userId = await auth.getUserId(ctx);
+    if (!userId) throw new Error("Not authenticated");
+
+    const message = await ctx.db.insert("messages", {
+      channelId: args.channelId,
+      userId,
+      text: args.prompt,
+      format: "dalle",
+      storageId: args.storageId,
+      formattedText: `![${args.prompt}](${args.storageId})`,
+      createdAt: Date.now(),
+      parentMessageId: args.threadId,
+      isAI: false,
+    });
+
+    return message;
+  },
+});
+
+export const getStorageUrl = mutation({
+  args: { storageId: v.id("_storage") },
+  handler: async (ctx, { storageId }) => {
+    const url = await ctx.storage.getUrl(storageId);
+    return url;
+  },
 });
