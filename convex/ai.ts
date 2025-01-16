@@ -221,11 +221,12 @@ ${publicMessages.map((m, i) => `[${i + 1}] ${m.text}`).join('\n')}
 ${message.parentMessageId ? 
   `Instructions:
 1. Focus on thread topic if directly relevant
-2. Use similar messages if referenced
+2. IF USER ASKS A QUESTION USE "SIMILAR MESSAGES" TO ANSWER IT & DO NOT ADD OTHER OPINIONS
 3. Combine both if appropriate
+4. Be brief as this is a thread reply.
 
 Respond in user's style.` 
-  : 'Respond in user\'s style.'}`;
+  : 'Respond in user\'s style, but be extrabrief as this is a thread reply.'}`;
 
   // Only send debug message if DEBUG_AI_PROMPTS is true
   const DEBUG_AI_PROMPTS = false;  // Set to true to see prompts
