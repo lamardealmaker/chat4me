@@ -110,11 +110,14 @@ export const processPendingTasks = action({
         const similarMessages = await ctx.runAction(api.embeddings.findSimilarMessages, {
           text: message.text,
           limit: 5,
+          userId: message.parentMessageId 
+            ? (await ctx.runQuery(api.messages.getMessage, { messageId: message.parentMessageId }))?.userId ?? task.userId 
+            : task.userId,
         });
-        console.log(`[${timestamp}] 🤖 CRON: Found ${similarMessages.length} similar messages`);
+        console.log(`[${timestamp}] 🤖 CRON: Found ${similarMessages.length} similar messages from original poster`);
 
         // Generate AI response based on context
-        const response = await generateAIResponse(ctx, message, similarMessages);
+        const response = await generateAIResponse(ctx, message, similarMessages, task.userId);
         console.log(`[${timestamp}] 🤖 CRON: Generated AI response (${response.length} chars)`);
 
         // Send the response as the offline user, but marked as AI
@@ -154,7 +157,8 @@ export const processPendingTasks = action({
 async function generateAIResponse(
   ctx: ActionCtx,
   message: Doc<"messages">,
-  similarMessages: Array<Doc<"messages"> & { userName: string }>
+  similarMessages: Array<Doc<"messages"> & { userName: string }>,
+  styleUserId: Id<"users">
 ): Promise<string> {
   const apiKey = process.env.OPENAI_API_KEY;
   if (!apiKey) {
@@ -163,13 +167,40 @@ async function generateAIResponse(
 
   // Get user's recent messages for style matching
   const recentMessages = await ctx.runQuery(internal.ai.getRecentMessages, {
-    userId: message.userId,
+    userId: styleUserId,
   });
 
+  // Filter out test messages, debug prompts, and duplicates
+  const MAX_STYLE_LENGTH = 300;
+  const filteredRecentMessages = await Promise.all(
+    recentMessages
+      .filter(m => !m.text.includes("test message"))
+      .filter(m => !m.text.includes("🤖 Debug - Prompt:"))
+      .filter(m => !m.isAI) // Remove AI-generated messages
+      .filter((m, i, arr) => arr.findIndex(msg => msg.text === m.text) === i)
+      .map(async (msg) => {
+        // Get channel to check if it's a DM
+        const channel = await ctx.runQuery(internal.ai.getChannel, { channelId: msg.channelId });
+        return { msg, channel };
+      })
+  );
+
+  // Filter DMs and limit by length
+  const publicMessages = filteredRecentMessages
+    .filter(({ channel }) => channel?.type !== "dm")
+    .reduce((acc: Doc<"messages">[], { msg }) => {
+      const currentLength = acc.reduce((sum, m) => sum + m.text.length, 0);
+      if (currentLength < MAX_STYLE_LENGTH) {
+        acc.push(msg);
+      }
+      return acc;
+    }, []);
+
   // If this is a thread reply, get the parent message for context
+  let parentMessage = null;
   let threadContext = "";
   if (message.parentMessageId) {
-    const parentMessage = await ctx.runQuery(api.messages.getMessage, { messageId: message.parentMessageId });
+    parentMessage = await ctx.runQuery(api.messages.getMessage, { messageId: message.parentMessageId });
     if (parentMessage) {
       threadContext = `\nThis is a reply to the following message: "${parentMessage.text}"
 Please ensure your response is relevant to this specific conversation thread.`;
@@ -177,15 +208,36 @@ Please ensure your response is relevant to this specific conversation thread.`;
   }
 
   // Build the prompt
-  const prompt = `Please respond to this message: "${message.text}"${threadContext}
+  const prompt = `Question: "${message.text}"
 
-${message.parentMessageId ? 'Here are some similar thread responses for context:' : 'Here is context of possible answers:'}
-${similarMessages.map(m => `- ${m.text}`).join('\n')}
+${message.parentMessageId && parentMessage ? `Parent Message: "${parentMessage.text}"` : ''}
 
-Here is the user's writing style and tone (examples from their 25 latest messages):
-${recentMessages.map((m: Doc<"messages">) => `- ${m.text}`).join('\n')}
+Similar Messages:
+${similarMessages.map((m, i) => `[${i + 1}] ${m.text}`).join('\n')}
 
-${message.parentMessageId ? 'Keep the response focused on the thread topic and parent message context.' : 'Output answer using the user\'s style and personality.'}`;
+User's Writing Style:
+${publicMessages.map((m, i) => `[${i + 1}] ${m.text}`).join('\n')}
+
+${message.parentMessageId ? 
+  `Instructions:
+1. Focus on thread topic if directly relevant
+2. Use similar messages if referenced
+3. Combine both if appropriate
+
+Respond in user's style.` 
+  : 'Respond in user\'s style.'}`;
+
+  // Only send debug message if DEBUG_AI_PROMPTS is true
+  const DEBUG_AI_PROMPTS = false;  // Set to true to see prompts
+  if (DEBUG_AI_PROMPTS) {
+    await ctx.runMutation(api.messages.send, {
+      channelId: message.channelId,
+      text: `🤖 Prompt Preview:\n${prompt}`,
+      parentMessageId: message.parentMessageId,
+      isAI: true,
+      userId: message.userId,
+    });
+  }
 
   // Call OpenAI for response
   const response = await fetch("https://api.openai.com/v1/chat/completions", {

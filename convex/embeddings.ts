@@ -102,8 +102,9 @@ export const findSimilarMessages = action({
   args: {
     text: v.string(),
     limit: v.optional(v.number()),
+    userId: v.id("users"),
   },
-  handler: async (ctx, { text, limit = 4 }): Promise<SearchResult[]> => {
+  handler: async (ctx, { text, limit = 4, userId }): Promise<SearchResult[]> => {
     // Generate embedding for the search text
     const vector = await ctx.runAction(internal.embeddings.generateEmbedding, {
       text,
@@ -112,7 +113,7 @@ export const findSimilarMessages = action({
     // Use vector index to find similar messages
     const results = await ctx.vectorSearch("messageEmbeddings", "by_vector", {
       vector,
-      limit,
+      limit: limit * 3, // Get more results since we'll filter
     });
 
     // Fetch messages using internal query
@@ -120,10 +121,16 @@ export const findSimilarMessages = action({
       ids: results.map(r => r._id),
     });
 
-    // Add scores to messages
-    return messages.map((msg, i) => ({
+    // Filter to only messages from specified user and take requested limit
+    const userMessages = messages
+      .filter(msg => msg.userId === userId)
+      .slice(0, limit);
+
+    // Map results scores to filtered messages
+    const resultScores = new Map(results.map(r => [r._id.toString(), r._score]));
+    return userMessages.map(msg => ({
       ...msg,
-      _score: results[i]._score,
+      _score: resultScores.get(msg._id.toString()) ?? 0,
     }));
   },
 }); 

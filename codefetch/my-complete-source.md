@@ -11,6 +11,7 @@ Project Structure:
 │   ├── auth.config.ts
 │   ├── auth.ts
 │   ├── channels.ts
+│   ├── crons.ts
 │   ├── embeddings.ts
 │   ├── http.ts
 │   ├── members.ts
@@ -86,42 +87,44 @@ convex/_generated/api.d.ts
 16 | import type * as ai from "../ai.js";
 17 | import type * as auth from "../auth.js";
 18 | import type * as channels from "../channels.js";
-19 | import type * as embeddings from "../embeddings.js";
-20 | import type * as http from "../http.js";
-21 | import type * as members from "../members.js";
-22 | import type * as messages from "../messages.js";
-23 | import type * as presence from "../presence.js";
-24 | import type * as users from "../users.js";
-25 | import type * as workspaces from "../workspaces.js";
-26 | 
-27 | /**
-28 |  * A utility for referencing Convex functions in your app's API.
-29 |  *
-30 |  * Usage:
-31 |  * ```js
-32 |  * const myFunctionReference = api.myModule.myFunction;
-33 |  * ```
-34 |  */
-35 | declare const fullApi: ApiFromModules<{
-36 |   ai: typeof ai;
-37 |   auth: typeof auth;
-38 |   channels: typeof channels;
-39 |   embeddings: typeof embeddings;
-40 |   http: typeof http;
-41 |   members: typeof members;
-42 |   messages: typeof messages;
-43 |   presence: typeof presence;
-44 |   users: typeof users;
-45 |   workspaces: typeof workspaces;
-46 | }>;
-47 | export declare const api: FilterApi<
-48 |   typeof fullApi,
-49 |   FunctionReference<any, "public">
-50 | >;
-51 | export declare const internal: FilterApi<
-52 |   typeof fullApi,
-53 |   FunctionReference<any, "internal">
-54 | >;
+19 | import type * as crons from "../crons.js";
+20 | import type * as embeddings from "../embeddings.js";
+21 | import type * as http from "../http.js";
+22 | import type * as members from "../members.js";
+23 | import type * as messages from "../messages.js";
+24 | import type * as presence from "../presence.js";
+25 | import type * as users from "../users.js";
+26 | import type * as workspaces from "../workspaces.js";
+27 | 
+28 | /**
+29 |  * A utility for referencing Convex functions in your app's API.
+30 |  *
+31 |  * Usage:
+32 |  * ```js
+33 |  * const myFunctionReference = api.myModule.myFunction;
+34 |  * ```
+35 |  */
+36 | declare const fullApi: ApiFromModules<{
+37 |   ai: typeof ai;
+38 |   auth: typeof auth;
+39 |   channels: typeof channels;
+40 |   crons: typeof crons;
+41 |   embeddings: typeof embeddings;
+42 |   http: typeof http;
+43 |   members: typeof members;
+44 |   messages: typeof messages;
+45 |   presence: typeof presence;
+46 |   users: typeof users;
+47 |   workspaces: typeof workspaces;
+48 | }>;
+49 | export declare const api: FilterApi<
+50 |   typeof fullApi,
+51 |   FunctionReference<any, "public">
+52 | >;
+53 | export declare const internal: FilterApi<
+54 |   typeof fullApi,
+55 |   FunctionReference<any, "internal">
+56 | >;
 ```
 
 convex/_generated/api.js
@@ -456,189 +459,506 @@ convex/_generated/server.js
 convex/ai.ts
 ```
 1 | import { v } from "convex/values";
-2 | import { action, internalMutation, internalQuery, mutation, QueryCtx } from "./_generated/server";
-3 | import { api, internal } from "./_generated/api";
-4 | import { Doc, Id } from "./_generated/dataModel";
-5 | import { GenericActionCtx } from "convex/server";
-6 | 
-7 | // Queue an AI response task
-8 | export const queueResponse = mutation({
-9 |   args: {
-10 |     channelId: v.id("channels"),
-11 |     userId: v.id("users"),
-12 |     messageId: v.id("messages"),
-13 |   },
-14 |   handler: async (ctx, { channelId, userId, messageId }) => {
-15 |     return await ctx.db.insert("aiTasks", {
-16 |       channelId,
-17 |       userId,
-18 |       messageId,
-19 |       status: "pending",
-20 |       createdAt: Date.now(),
-21 |     });
-22 |   },
-23 | });
-24 | 
-25 | // Process pending AI tasks
-26 | export const processPendingTasks = action({
-27 |   args: {},
-28 |   handler: async (ctx) => {
-29 |     // Get pending tasks
-30 |     const tasks = await ctx.runQuery(internal.ai.getPendingTasks, {});
-31 |     
-32 |     for (const task of tasks) {
-33 |       try {
-34 |         // Mark as processing
-35 |         await ctx.runMutation(internal.ai.updateTaskStatus, {
-36 |           taskId: task._id,
-37 |           status: "processing",
-38 |         });
+2 | import { ActionCtx, MutationCtx, QueryCtx } from "./_generated/server";
+3 | import { mutation, query, action, internalQuery, internalMutation } from "./_generated/server";
+4 | import { api, internal } from "./_generated/api";
+5 | import { Doc, Id } from "./_generated/dataModel";
+6 | import { auth } from "./auth";
+7 | 
+8 | // Queue an AI response task
+9 | export const queueResponse = mutation({
+10 |   args: {
+11 |     channelId: v.id("channels"),
+12 |     userId: v.id("users"),
+13 |     messageId: v.id("messages"),
+14 |   },
+15 |   handler: async (ctx: MutationCtx, { channelId, userId, messageId }) => {
+16 |     console.log("Queueing AI response", { channelId, userId, messageId });
+17 |     const taskId = await ctx.db.insert("aiTasks", {
+18 |       channelId,
+19 |       userId,
+20 |       messageId,
+21 |       status: "pending",
+22 |       createdAt: Date.now(),
+23 |     });
+24 |     console.log("Created AI task", { taskId });
+25 |     return taskId;
+26 |   },
+27 | });
+28 | 
+29 | // Get pending AI tasks
+30 | export const getPendingTasks = internalQuery({
+31 |   args: {},
+32 |   handler: async (ctx: QueryCtx) => {
+33 |     return await ctx.db
+34 |       .query("aiTasks")
+35 |       .withIndex("by_status", (q: any) => q.eq("status", "pending"))
+36 |       .collect();
+37 |   },
+38 | });
 39 | 
-40 |         // Get the message to respond to
-41 |         const message = await ctx.runQuery(api.messages.getById, {
-42 |           messageId: task.messageId,
-43 |         });
-44 |         if (!message) continue;
-45 | 
-46 |         // Get similar messages for context
-47 |         const similarMessages = await ctx.runAction(api.embeddings.findSimilarMessages, {
-48 |           text: message.text,
-49 |           limit: 5,
-50 |         });
-51 | 
-52 |         // Generate AI response based on context
-53 |         const response = await generateAIResponse(ctx, message, similarMessages);
-54 | 
-55 |         // Send the response as the offline user, but marked as AI
-56 |         await ctx.runMutation(api.messages.send, {
-57 |           channelId: task.channelId,
-58 |           text: response,
-59 |           parentMessageId: message.parentMessageId,
-60 |           isAI: true,
-61 |           userId: task.userId, // Send as the offline user
-62 |         });
-63 | 
-64 |         // Mark as completed
-65 |         await ctx.runMutation(internal.ai.updateTaskStatus, {
-66 |           taskId: task._id,
-67 |           status: "completed",
-68 |           completedAt: Date.now(),
-69 |         });
-70 |       } catch (error: any) {
-71 |         // Mark as failed
-72 |         await ctx.runMutation(internal.ai.updateTaskStatus, {
-73 |           taskId: task._id,
-74 |           status: "failed",
-75 |           error: error.message,
-76 |         });
-77 |       }
-78 |     }
-79 |   },
-80 | });
-81 | 
-82 | // Get pending AI tasks
-83 | export const getPendingTasks = internalQuery({
-84 |   args: {},
-85 |   handler: async (ctx) => {
-86 |     return await ctx.db
-87 |       .query("aiTasks")
-88 |       .withIndex("by_status", (q) => q.eq("status", "pending"))
-89 |       .collect();
-90 |   },
-91 | });
-92 | 
-93 | // Update AI task status
-94 | export const updateTaskStatus = internalMutation({
-95 |   args: {
-96 |     taskId: v.id("aiTasks"),
-97 |     status: v.union(
-98 |       v.literal("pending"),
-99 |       v.literal("processing"),
-100 |       v.literal("completed"),
-101 |       v.literal("failed")
-102 |     ),
-103 |     completedAt: v.optional(v.number()),
-104 |     error: v.optional(v.string()),
-105 |   },
-106 |   handler: async (ctx, { taskId, status, completedAt, error }) => {
-107 |     await ctx.db.patch(taskId, {
-108 |       status,
-109 |       ...(completedAt && { completedAt }),
-110 |       ...(error && { error }),
-111 |     });
-112 |   },
-113 | });
-114 | 
-115 | // Helper function to get recent messages
-116 | export const getRecentMessages = internalQuery({
-117 |   args: { userId: v.id("users") },
-118 |   handler: async (ctx, { userId }) => {
-119 |     const messages = await ctx.db
-120 |       .query("messages")
-121 |       .withIndex("by_user_id", (q) => q.eq("userId", userId))
-122 |       .order("desc")
-123 |       .take(25);
-124 |     return messages;
-125 |   },
-126 | });
-127 | 
-128 | // Helper function to generate AI response
-129 | async function generateAIResponse(
-130 |   ctx: GenericActionCtx<any>,
-131 |   message: Doc<"messages">,
-132 |   similarMessages: Array<Doc<"messages"> & { userName: string }>
-133 | ): Promise<string> {
-134 |   const apiKey = process.env.OPENAI_API_KEY;
-135 |   if (!apiKey) {
-136 |     throw new Error("OPENAI_API_KEY environment variable not set");
-137 |   }
-138 | 
-139 |   // Get user's recent messages for style matching
-140 |   const recentMessages = await ctx.runQuery(internal.ai.getRecentMessages, {
-141 |     userId: message.userId,
-142 |   });
-143 | 
-144 |   // Build the prompt
-145 |   const prompt = `Please respond to this message: "${message.text}"
-146 | 
-147 | Here is context of possible answers:
-148 | ${similarMessages.map(m => `- ${m.text}`).join('\n')}
-149 | 
-150 | Here is the user's writing style and tone (examples from their 25 latest messages):
-151 | ${recentMessages.map((m: Doc<"messages">) => `- ${m.text}`).join('\n')}
+40 | // Update AI task status
+41 | export const updateTaskStatus = internalMutation({
+42 |   args: {
+43 |     taskId: v.id("aiTasks"),
+44 |     status: v.union(
+45 |       v.literal("pending"),
+46 |       v.literal("processing"),
+47 |       v.literal("completed"),
+48 |       v.literal("failed")
+49 |     ),
+50 |     completedAt: v.optional(v.number()),
+51 |     error: v.optional(v.string()),
+52 |   },
+53 |   handler: async (ctx: MutationCtx, { taskId, status, completedAt, error }) => {
+54 |     await ctx.db.patch(taskId, {
+55 |       status,
+56 |       ...(completedAt && { completedAt }),
+57 |       ...(error && { error }),
+58 |     });
+59 |   },
+60 | });
+61 | 
+62 | // Helper function to get recent messages
+63 | export const getRecentMessages = internalQuery({
+64 |   args: { userId: v.id("users") },
+65 |   handler: async (ctx: QueryCtx, { userId }) => {
+66 |     const messages = await ctx.db
+67 |       .query("messages")
+68 |       .withIndex("by_user_id", (q: any) => q.eq("userId", userId))
+69 |       .order("desc")
+70 |       .take(25);
+71 |     return messages;
+72 |   },
+73 | });
+74 | 
+75 | // Process pending AI tasks
+76 | export const processPendingTasks = action({
+77 |   args: {},
+78 |   handler: async (ctx: ActionCtx) => {
+79 |     const timestamp = new Date().toISOString();
+80 |     console.log(`[${timestamp}] 🤖 CRON: Starting processPendingTasks`);
+81 |     
+82 |     // Get pending tasks
+83 |     const tasks = await ctx.runQuery(internal.ai.getPendingTasks, {});
+84 |     console.log(`[${timestamp}] 🤖 CRON: Found ${tasks.length} pending tasks`);
+85 |     
+86 |     if (tasks.length === 0) {
+87 |       console.log(`[${timestamp}] 🤖 CRON: No pending tasks to process`);
+88 |       return;
+89 |     }
+90 |     
+91 |     for (const task of tasks) {
+92 |       try {
+93 |         console.log(`[${timestamp}] 🤖 CRON: Processing task ${task._id}`);
+94 |         // Mark as processing
+95 |         await ctx.runMutation(internal.ai.updateTaskStatus, {
+96 |           taskId: task._id,
+97 |           status: "processing",
+98 |         });
+99 | 
+100 |         // Get the message to respond to
+101 |         const message = await ctx.runQuery(api.messages.getById, {
+102 |           messageId: task.messageId,
+103 |         });
+104 |         if (!message) {
+105 |           console.error(`[${timestamp}] 🤖 CRON: Message not found ${task.messageId}`);
+106 |           continue;
+107 |         }
+108 | 
+109 |         // Get similar messages for context
+110 |         const similarMessages = await ctx.runAction(api.embeddings.findSimilarMessages, {
+111 |           text: message.text,
+112 |           limit: 5,
+113 |         });
+114 |         console.log(`[${timestamp}] 🤖 CRON: Found ${similarMessages.length} similar messages`);
+115 | 
+116 |         // Generate AI response based on context
+117 |         const response = await generateAIResponse(ctx, message, similarMessages);
+118 |         console.log(`[${timestamp}] 🤖 CRON: Generated AI response (${response.length} chars)`);
+119 | 
+120 |         // Send the response as the offline user, but marked as AI
+121 |         await ctx.runMutation(api.messages.send, {
+122 |           channelId: task.channelId,
+123 |           text: response,
+124 |           parentMessageId: message.parentMessageId,
+125 |           isAI: true,
+126 |           userId: task.userId,
+127 |         });
+128 |         console.log(`[${timestamp}] 🤖 CRON: Sent AI response`);
+129 | 
+130 |         // Mark as completed
+131 |         await ctx.runMutation(internal.ai.updateTaskStatus, {
+132 |           taskId: task._id,
+133 |           status: "completed",
+134 |           completedAt: Date.now(),
+135 |         });
+136 |         console.log(`[${timestamp}] 🤖 CRON: Completed task ${task._id}`);
+137 |       } catch (error: any) {
+138 |         console.error(`[${timestamp}] 🤖 CRON: Failed to process task ${task._id}`, {
+139 |           error: error.message,
+140 |           stack: error.stack
+141 |         });
+142 |         // Mark as failed
+143 |         await ctx.runMutation(internal.ai.updateTaskStatus, {
+144 |           taskId: task._id,
+145 |           status: "failed",
+146 |           error: error.message,
+147 |         });
+148 |       }
+149 |     }
+150 |   },
+151 | });
 152 | 
-153 | Output answer using the user's style. The user is offline right now.`;
-154 | 
-155 |   // Call OpenAI for response
-156 |   const response = await fetch("https://api.openai.com/v1/chat/completions", {
-157 |     method: "POST",
-158 |     headers: {
-159 |       "Content-Type": "application/json",
-160 |       Authorization: `Bearer ${apiKey}`,
-161 |     },
-162 |     body: JSON.stringify({
-163 |       model: "gpt-4",
-164 |       messages: [
-165 |         {
-166 |           role: "system",
-167 |           content: "You are an AI assistant responding on behalf of a user who is currently offline. Match their writing style and tone while providing helpful responses.",
-168 |         },
-169 |         {
-170 |           role: "user",
-171 |           content: prompt,
-172 |         },
-173 |       ],
-174 |       temperature: 0.7,
-175 |     }),
-176 |   });
-177 | 
-178 |   if (!response.ok) {
-179 |     throw new Error(`OpenAI API error: ${response.statusText}`);
-180 |   }
+153 | // Helper function to generate AI response
+154 | async function generateAIResponse(
+155 |   ctx: ActionCtx,
+156 |   message: Doc<"messages">,
+157 |   similarMessages: Array<Doc<"messages"> & { userName: string }>
+158 | ): Promise<string> {
+159 |   const apiKey = process.env.OPENAI_API_KEY;
+160 |   if (!apiKey) {
+161 |     throw new Error("OPENAI_API_KEY environment variable not set");
+162 |   }
+163 | 
+164 |   // Get user's recent messages for style matching
+165 |   const recentMessages = await ctx.runQuery(internal.ai.getRecentMessages, {
+166 |     userId: message.userId,
+167 |   });
+168 | 
+169 |   // If this is a thread reply, get the parent message for context
+170 |   let threadContext = "";
+171 |   if (message.parentMessageId) {
+172 |     const parentMessage = await ctx.runQuery(api.messages.getMessage, { messageId: message.parentMessageId });
+173 |     if (parentMessage) {
+174 |       threadContext = `\nThis is a reply to the following message: "${parentMessage.text}"
+175 | Please ensure your response is relevant to this specific conversation thread.`;
+176 |     }
+177 |   }
+178 | 
+179 |   // Build the prompt
+180 |   const prompt = `Please respond to this message: "${message.text}"${threadContext}
 181 | 
-182 |   const result = await response.json();
-183 |   return result.choices[0].message.content;
-184 | } 
+182 | ${message.parentMessageId ? 'Here are some similar thread responses for context:' : 'Here is context of possible answers:'}
+183 | ${similarMessages.map(m => `- ${m.text}`).join('\n')}
+184 | 
+185 | Here is the user's writing style and tone (examples from their 25 latest messages):
+186 | ${recentMessages.map((m: Doc<"messages">) => `- ${m.text}`).join('\n')}
+187 | 
+188 | ${message.parentMessageId ? 'Keep the response focused on the thread topic and parent message context.' : 'Output answer using the user\'s style and personality.'}`;
+189 | 
+190 |   // Call OpenAI for response
+191 |   const response = await fetch("https://api.openai.com/v1/chat/completions", {
+192 |     method: "POST",
+193 |     headers: {
+194 |       "Content-Type": "application/json",
+195 |       Authorization: `Bearer ${apiKey}`,
+196 |     },
+197 |     body: JSON.stringify({
+198 |         // dont change model name
+199 |       model: "gpt-4o-mini",
+200 |       messages: [
+201 |         {
+202 |           role: "system",
+203 |           content: message.parentMessageId 
+204 |             ? "You are an AI assistant responding in a message thread. Focus on the specific conversation context while matching the user's style."
+205 |             : "You are an AI assistant responding on behalf of a user. Match their writing style, tone, and personality while providing helpful responses.",
+206 |         },
+207 |         {
+208 |           role: "user",
+209 |           content: prompt,
+210 |         },
+211 |       ],
+212 |       temperature: 0.7,
+213 |     }),
+214 |   });
+215 | 
+216 |   if (!response.ok) {
+217 |     throw new Error(`OpenAI API error: ${response.statusText}`);
+218 |   }
+219 | 
+220 |   const result = await response.json();
+221 |   return result.choices[0].message.content;
+222 | }
+223 | 
+224 | // Debug functions
+225 | export const testAIResponse = mutation({
+226 |   args: {
+227 |     workspaceId: v.optional(v.id("workspaces")),
+228 |   },
+229 |   handler: async (ctx: MutationCtx, args) => {
+230 |     // 1. Get current user
+231 |     const userId = await auth.getUserId(ctx);
+232 |     if (!userId) throw new Error("Not authenticated");
+233 | 
+234 |     // 2. Get or use provided workspace
+235 |     const workspaceId = args.workspaceId || await ctx.db
+236 |       .query("workspaces")
+237 |       .first()
+238 |       .then((ws: Doc<"workspaces"> | null) => ws?._id);
+239 |     if (!workspaceId) throw new Error("No workspace found");
+240 | 
+241 |     // 3. Find another user in the workspace
+242 |     const otherMember = await ctx.db
+243 |       .query("members")
+244 |       .withIndex("by_workspace_id", (q: any) => q.eq("workspaceId", workspaceId))
+245 |       .filter((q: any) => q.neq(q.field("userId"), userId))
+246 |       .first();
+247 |     if (!otherMember) throw new Error("No other user found");
+248 | 
+249 |     // 4. Create or get DM channel
+250 |     const channel = await ctx.db
+251 |       .query("channels")
+252 |       .withIndex("by_workspace_id", (q: any) => q.eq("workspaceId", workspaceId))
+253 |       .filter((q: any) => 
+254 |         q.and(
+255 |           q.eq(q.field("type"), "dm"),
+256 |           q.eq(q.field("userIds"), [userId, otherMember.userId].sort())
+257 |         )
+258 |       )
+259 |       .first();
+260 | 
+261 |     const channelId = channel?._id || await ctx.db.insert("channels", {
+262 |       workspaceId,
+263 |       type: "dm",
+264 |       userIds: [userId, otherMember.userId].sort(),
+265 |       name: "Test DM"
+266 |     });
+267 | 
+268 |     // 5. Send test message
+269 |     const messageId = await ctx.db.insert("messages", {
+270 |       channelId,
+271 |       userId,
+272 |       text: "This is a test message to trigger an AI response",
+273 |       createdAt: Date.now(),
+274 |     });
+275 | 
+276 |     // 6. Queue AI response
+277 |     await ctx.db.insert("aiTasks", {
+278 |       channelId,
+279 |       userId: otherMember.userId,
+280 |       messageId,
+281 |       status: "pending",
+282 |       createdAt: Date.now(),
+283 |     });
+284 | 
+285 |     return {
+286 |       channelId,
+287 |       messageId,
+288 |       otherUserId: otherMember.userId,
+289 |       status: "Test message sent and AI task queued"
+290 |     };
+291 |   },
+292 | });
+293 | 
+294 | // Debug query to check pending tasks
+295 | export const checkPendingTasks = query({
+296 |   args: {},
+297 |   handler: async (ctx: QueryCtx) => {
+298 |     const tasks = await ctx.db
+299 |       .query("aiTasks")
+300 |       .filter((q: any) => q.eq(q.field("status"), "pending"))
+301 |       .collect();
+302 |     
+303 |     return tasks.map((task: Doc<"aiTasks">) => ({
+304 |       ...task,
+305 |       createdAt: new Date(task.createdAt).toISOString()
+306 |     }));
+307 |   },
+308 | });
+309 | 
+310 | // Debug query to check full flow
+311 | export const debugFullFlow = query({
+312 |   args: {},
+313 |   handler: async (ctx: QueryCtx) => {
+314 |     const userId = await auth.getUserId(ctx);
+315 |     if (!userId) return { 
+316 |       tasks: [],
+317 |       messages: [],
+318 |       status: "error: not authenticated" 
+319 |     };
+320 | 
+321 |     try {
+322 |       // 1. Check for pending tasks
+323 |       const tasks = await ctx.db
+324 |         .query("aiTasks")
+325 |         .order("desc")
+326 |         .take(5);
+327 | 
+328 |       const formattedTasks = tasks.map((t: Doc<"aiTasks">) => ({
+329 |         ...t,
+330 |         createdAt: new Date(t.createdAt).toISOString(),
+331 |         completedAt: t.completedAt ? new Date(t.completedAt).toISOString() : undefined
+332 |       }));
+333 | 
+334 |       // 2. Get messages from the most recent task's channel
+335 |       let formattedMessages: Array<{
+336 |         _id: Id<"messages">;
+337 |         userId: Id<"users">;
+338 |         channelId: Id<"channels">;
+339 |         text: string;
+340 |         createdAt: string;
+341 |         userName: string;
+342 |         isAIResponse: boolean;
+343 |         parentMessageId?: Id<"messages">;
+344 |       }> = [];
+345 |       if (tasks.length > 0) {
+346 |         const latestTask = tasks[0];
+347 |         const messages = await ctx.db
+348 |           .query("messages")
+349 |           .withIndex("by_channel_id", (q: any) => q.eq("channelId", latestTask.channelId))
+350 |           .order("desc")
+351 |           .take(5);
+352 | 
+353 |         formattedMessages = await Promise.all(messages.map(async (msg: Doc<"messages">) => {
+354 |           const user = await ctx.db.get(msg.userId);
+355 |           return {
+356 |             ...msg,
+357 |             userName: user?.name || "Unknown",
+358 |             createdAt: new Date(msg.createdAt).toISOString(),
+359 |             isAIResponse: !!msg.isAI
+360 |           };
+361 |         }));
+362 |       }
+363 | 
+364 |       return {
+365 |         tasks: formattedTasks,
+366 |         messages: formattedMessages,
+367 |         status: "success"
+368 |       };
+369 |     } catch (error: any) {
+370 |       return {
+371 |         tasks: [],
+372 |         messages: [],
+373 |         status: `error: ${error.message}`
+374 |       };
+375 |     }
+376 |   }
+377 | });
+378 | 
+379 | // Internal query to get channel
+380 | export const getChannel = internalQuery({
+381 |   args: { channelId: v.id("channels") },
+382 |   handler: async (ctx: QueryCtx, { channelId }) => {
+383 |     return await ctx.db
+384 |       .query("channels")
+385 |       .filter((q) => q.eq(q.field("_id"), channelId))
+386 |       .first();
+387 |   },
+388 | });
+389 | 
+390 | // Internal query to check workspace membership
+391 | export const checkMembership = internalQuery({
+392 |   args: { 
+393 |     workspaceId: v.id("workspaces"),
+394 |     userId: v.id("users")
+395 |   },
+396 |   handler: async (ctx: QueryCtx, { workspaceId, userId }) => {
+397 |     return await ctx.db
+398 |       .query("members")
+399 |       .withIndex("by_workspace_id_and_user_id", (q) =>
+400 |         q.eq("workspaceId", workspaceId).eq("userId", userId)
+401 |       )
+402 |       .first();
+403 |   },
+404 | });
+405 | 
+406 | export const generateSummary = action({
+407 |   args: {
+408 |     channelId: v.id("channels"),
+409 |     threadId: v.optional(v.id("messages")),
+410 |     type: v.union(v.literal("channel"), v.literal("dm"), v.literal("thread")),
+411 |   },
+412 |   handler: async (ctx, { channelId, threadId, type }) => {
+413 |     const userId = await auth.getUserId(ctx);
+414 |     if (!userId) throw new Error("Unauthorized");
+415 | 
+416 |     // Get channel using internal query
+417 |     const channel = await ctx.runQuery(internal.ai.getChannel, { channelId });
+418 |     if (!channel) throw new Error("Channel not found");
+419 | 
+420 |     // Verify workspace membership using internal query
+421 |     const member = await ctx.runQuery(internal.ai.checkMembership, {
+422 |       workspaceId: channel.workspaceId,
+423 |       userId
+424 |     });
+425 |     if (!member) throw new Error("Not a member of this workspace");
+426 | 
+427 |     // Fetch messages based on type
+428 |     let messages;
+429 |     if (type === "thread" && threadId) {
+430 |       messages = await ctx.runQuery(api.messages.listThread, { parentMessageId: threadId });
+431 |       
+432 |       // Add the parent message
+433 |       const parentMessage = await ctx.runQuery(api.messages.getById, { messageId: threadId });
+434 |       if (parentMessage) {
+435 |         messages = [parentMessage, ...messages];
+436 |       }
+437 |     } else {
+438 |       messages = await ctx.runQuery(api.messages.listRecent, { 
+439 |         channelId,
+440 |         hours: 24
+441 |       });
+442 |     }
+443 | 
+444 |     if (!messages || messages.length === 0) {
+445 |       return "No messages found to summarize.";
+446 |     }
+447 | 
+448 |     // Sort messages by timestamp
+449 |     messages.sort((a, b) => a.createdAt - b.createdAt);
+450 | 
+451 |     // Build conversation context
+452 |     const conversationContext = messages
+453 |       .map((msg) => `${msg.userName || 'Unknown'}: ${msg.text}`)
+454 |       .join("\n");
+455 | 
+456 |     // Generate summary prompt based on type
+457 |     let prompt = "";
+458 |     if (type === "channel") {
+459 |       prompt = `Here's the last 24 hours of channel messages:\n\n${conversationContext}\n\nProvide a clear and concise summary of the key discussions and decisions from these channel messages.`;
+460 |     } else if (type === "dm") {
+461 |       prompt = `Here's the last 24 hours of direct messages:\n\n${conversationContext}\n\nProvide a clear and concise summary of the key points from this conversation.`;
+462 |     } else {
+463 |       prompt = `Here's a thread discussion:\n\n${conversationContext}\n\nProvide a clear and concise summary of this thread's discussion and any conclusions reached.`;
+464 |     }
+465 | 
+466 |     // Call OpenAI for summary
+467 |     const apiKey = process.env.OPENAI_API_KEY;
+468 |     if (!apiKey) {
+469 |       throw new Error("OPENAI_API_KEY environment variable not set");
+470 |     }
+471 | 
+472 |     const response = await fetch("https://api.openai.com/v1/chat/completions", {
+473 |       method: "POST",
+474 |       headers: {
+475 |         "Content-Type": "application/json",
+476 |         Authorization: `Bearer ${apiKey}`,
+477 |       },
+478 |       body: JSON.stringify({
+479 |         model: "gpt-4o-mini",
+480 |         messages: [
+481 |           {
+482 |             role: "system",
+483 |             content: "You are a helpful assistant that provides clear, concise summaries of chat conversations.",
+484 |           },
+485 |           {
+486 |             role: "user",
+487 |             content: prompt,
+488 |           },
+489 |         ],
+490 |         temperature: 0.7,
+491 |       }),
+492 |     });
+493 | 
+494 |     if (!response.ok) {
+495 |       throw new Error(`OpenAI API error: ${response.statusText}`);
+496 |     }
+497 | 
+498 |     const result = await response.json();
+499 |     return result.choices[0].message.content;
+500 |   },
+501 | });
 ```
 
 convex/auth.config.ts
@@ -799,225 +1119,248 @@ convex/channels.ts
 121 |       )
 122 |       .collect();
 123 | 
-124 |     // Debug log
-125 |     console.log("All channels:", channels);
-126 |     console.log("Current userId:", userId);
-127 | 
-128 |     // Filter DM channels to only include ones where user is a participant
-129 |     const filteredChannels = channels.filter(channel => {
-130 |       if (channel.type === "dm") {
-131 |         console.log("DM channel:", channel);
-132 |         console.log("Has userIds:", !!channel.userIds);
-133 |         console.log("Includes user:", channel.userIds?.includes(userId));
-134 |       }
-135 |       return channel.type !== "dm" || 
-136 |         (channel.userIds && channel.userIds.includes(userId));
-137 |     });
+124 |     // For DM channels, update names with current user names
+125 |     const enhancedChannels = await Promise.all(channels.map(async channel => {
+126 |       if (channel.type === "dm" && channel.userIds) {
+127 |         const otherUserId = channel.userIds.find(id => id !== userId);
+128 |         if (otherUserId) {
+129 |           const otherUser = await ctx.db.get(otherUserId);
+130 |           return {
+131 |             ...channel,
+132 |             name: otherUser?.name || "Unknown User"
+133 |           };
+134 |         }
+135 |       }
+136 |       return channel;
+137 |     }));
 138 | 
-139 |     return filteredChannels;
-140 |   },
-141 | });
-142 | 
-143 | export const cleanupDuplicateDMs = mutation({
-144 |   args: {
-145 |     workspaceId: v.id("workspaces"),
-146 |   },
-147 |   async handler(ctx, args) {
-148 |     const userId = await auth.getUserId(ctx);
-149 |     if (!userId) throw new Error("Unauthorized");
-150 | 
-151 |     // Get all DM channels for this workspace
-152 |     const channels = await ctx.db
-153 |       .query("channels")
-154 |       .withIndex("by_workspace_id", (q) => q.eq("workspaceId", args.workspaceId))
-155 |       .filter((q) => q.eq(q.field("type"), "dm"))
-156 |       .collect();
-157 | 
-158 |     // Group channels by their userIds
-159 |     const channelGroups = new Map<string, Doc<"channels">[]>();
-160 |     channels.forEach(channel => {
-161 |       if (!channel.userIds) return;
-162 |       const key = channel.userIds.sort().join(',');
-163 |       if (!channelGroups.has(key)) {
-164 |         channelGroups.set(key, []);
-165 |       }
-166 |       channelGroups.get(key)?.push(channel);
-167 |     });
-168 | 
-169 |     // For each group of duplicate channels, keep the newest one
-170 |     for (const [_, duplicates] of channelGroups) {
-171 |       if (duplicates.length <= 1) continue;
-172 |       
-173 |       // Sort by creation time, newest first
-174 |       duplicates.sort((a: Doc<"channels">, b: Doc<"channels">) => b._creationTime - a._creationTime);
-175 |       
-176 |       // Keep the first one (newest), delete the rest
-177 |       const [keep, ...remove] = duplicates;
-178 |       
-179 |       // Update the kept channel if it has an empty name
-180 |       if (!keep.name) {
-181 |         const otherUserId = keep.userIds?.find((id: Id<"users">) => id !== userId);
-182 |         if (otherUserId) {
-183 |           const otherUser = await ctx.db.get(otherUserId);
-184 |           if (otherUser?.name) {
-185 |             await ctx.db.patch(keep._id, { name: otherUser.name });
-186 |           }
-187 |         }
-188 |       }
-189 |       
-190 |       // Delete the duplicates
-191 |       for (const channel of remove) {
-192 |         await ctx.db.delete(channel._id);
-193 |       }
-194 |     }
-195 |   },
-196 | });
+139 |     // Filter DM channels to only include ones where user is a participant
+140 |     return enhancedChannels.filter(channel => 
+141 |       channel.type !== "dm" || 
+142 |       (channel.userIds && channel.userIds.includes(userId))
+143 |     );
+144 |   },
+145 | });
+146 | 
+147 | export const cleanupDuplicateDMs = mutation({
+148 |   args: {
+149 |     workspaceId: v.id("workspaces"),
+150 |   },
+151 |   async handler(ctx, args) {
+152 |     const userId = await auth.getUserId(ctx);
+153 |     if (!userId) throw new Error("Unauthorized");
+154 | 
+155 |     // Get all DM channels for this workspace
+156 |     const channels = await ctx.db
+157 |       .query("channels")
+158 |       .withIndex("by_workspace_id", (q) => q.eq("workspaceId", args.workspaceId))
+159 |       .filter((q) => q.eq(q.field("type"), "dm"))
+160 |       .collect();
+161 | 
+162 |     // Group channels by their userIds
+163 |     const channelGroups = new Map<string, Doc<"channels">[]>();
+164 |     channels.forEach(channel => {
+165 |       if (!channel.userIds) return;
+166 |       const key = channel.userIds.sort().join(',');
+167 |       if (!channelGroups.has(key)) {
+168 |         channelGroups.set(key, []);
+169 |       }
+170 |       channelGroups.get(key)?.push(channel);
+171 |     });
+172 | 
+173 |     // For each group of duplicate channels, keep the newest one
+174 |     for (const [_, duplicates] of channelGroups) {
+175 |       if (duplicates.length <= 1) continue;
+176 |       
+177 |       // Sort by creation time, newest first
+178 |       duplicates.sort((a: Doc<"channels">, b: Doc<"channels">) => b._creationTime - a._creationTime);
+179 |       
+180 |       // Keep the first one (newest), delete the rest
+181 |       const [keep, ...remove] = duplicates;
+182 |       
+183 |       // Update the kept channel if it has an empty name
+184 |       if (!keep.name) {
+185 |         const otherUserId = keep.userIds?.find((id: Id<"users">) => id !== userId);
+186 |         if (otherUserId) {
+187 |           const otherUser = await ctx.db.get(otherUserId);
+188 |           if (otherUser?.name) {
+189 |             await ctx.db.patch(keep._id, { name: otherUser.name });
+190 |           }
+191 |         }
+192 |       }
+193 |       
+194 |       // Delete the duplicates
+195 |       for (const channel of remove) {
+196 |         await ctx.db.delete(channel._id);
+197 |       }
+198 |     }
+199 |   },
+200 | });
+201 | 
+202 | export const listDMChannels = query({
+203 |   args: {},
+204 |   handler: async (ctx) => {
+205 |     const userId = await auth.getUserId(ctx);
+206 |     if (!userId) return [];
+207 | 
+208 |     return await ctx.db
+209 |       .query("channels")
+210 |       .filter((q) => q.eq(q.field("type"), "dm"))
+211 |       .collect();
+212 |   },
+213 | });
+```
+
+convex/crons.ts
+```
+1 | import { cronJobs } from "convex/server";
+2 | import { api } from "./_generated/api";
+3 | 
+4 | const crons = cronJobs();
+5 | 
+6 | // Process AI tasks every minute
+7 | crons.interval(
+8 |   "process-ai-tasks",
+9 |   { minutes: 1 },
+10 |   api.ai.processPendingTasks,
+11 |   {}
+12 | );
+13 | 
+14 | // Make sure to export the crons object as the default export
+15 | export default crons; 
 ```
 
 convex/embeddings.ts
 ```
 1 | import { v } from "convex/values";
-2 | import { action, mutation, query } from "./_generated/server";
-3 | import { api } from "./_generated/api";
-4 | import { Doc, Id } from "./_generated/dataModel";
-5 | 
-6 | // OpenAI API for generating embeddings
-7 | const OPENAI_API_URL = "https://api.openai.com/v1/embeddings";
-8 | const EMBEDDING_MODEL = "text-embedding-ada-002";
-9 | 
-10 | type MessageWithUser = Doc<"messages"> & { userName: string };
-11 | type SearchResult = { _id: Id<"messageEmbeddings">; _score: number };
+2 | import { action, internalAction, internalMutation, internalQuery } from "./_generated/server";
+3 | import OpenAI from "openai";
+4 | import { internal } from "./_generated/api";
+5 | import { Doc, Id } from "./_generated/dataModel";
+6 | 
+7 | // Type for search results
+8 | type SearchResult = Doc<"messages"> & {
+9 |   userName: string;
+10 |   _score: number;
+11 | };
 12 | 
-13 | // Action to generate embedding from OpenAI
-14 | export const generateEmbedding = action({
-15 |   args: { 
-16 |     messageId: v.id("messages"),
-17 |     text: v.string(),
-18 |   },
-19 |   handler: async (ctx, { messageId, text }) => {
-20 |     const apiKey = process.env.OPENAI_API_KEY;
-21 |     if (!apiKey) {
-22 |       throw new Error("OPENAI_API_KEY environment variable not set");
-23 |     }
-24 | 
-25 |     const response = await fetch(OPENAI_API_URL, {
-26 |       method: "POST",
-27 |       headers: {
-28 |         "Content-Type": "application/json",
-29 |         Authorization: `Bearer ${apiKey}`,
-30 |       },
-31 |       body: JSON.stringify({
-32 |         input: text,
-33 |         model: EMBEDDING_MODEL,
-34 |       }),
-35 |     });
-36 | 
-37 |     if (!response.ok) {
-38 |       throw new Error(`OpenAI API error: ${response.statusText}`);
-39 |     }
-40 | 
-41 |     const result = await response.json();
-42 |     const embedding = result.data[0].embedding;
-43 | 
-44 |     // Store the embedding using a mutation
-45 |     await ctx.runMutation(api.embeddings.storeEmbedding, {
-46 |       messageId,
-47 |       vector: embedding,
-48 |     });
-49 | 
-50 |     return embedding;
+13 | function getOpenAIClient() {
+14 |   const apiKey = process.env.OPENAI_API_KEY;
+15 |   if (!apiKey) {
+16 |     throw new Error("OPENAI_API_KEY environment variable is required");
+17 |   }
+18 |   return new OpenAI({ apiKey });
+19 | }
+20 | 
+21 | export const generateEmbedding = internalAction({
+22 |   args: { text: v.string() },
+23 |   handler: async (ctx, { text }) => {
+24 |     const openai = getOpenAIClient();
+25 |     const response = await openai.embeddings.create({
+26 |       model: "text-embedding-ada-002",
+27 |       input: text,
+28 |     });
+29 |     return response.data[0].embedding;
+30 |   },
+31 | });
+32 | 
+33 | export const storeEmbedding = internalMutation({
+34 |   args: {
+35 |     messageId: v.id("messages"),
+36 |     vector: v.array(v.float64()),
+37 |   },
+38 |   handler: async (ctx, { messageId, vector }) => {
+39 |     await ctx.db.insert("messageEmbeddings", {
+40 |       messageId,
+41 |       vector,
+42 |       createdAt: Date.now(),
+43 |     });
+44 |   },
+45 | });
+46 | 
+47 | export const getMessage = internalQuery({
+48 |   args: { messageId: v.id("messages") },
+49 |   handler: async (ctx, { messageId }) => {
+50 |     return await ctx.db.get(messageId);
 51 |   },
 52 | });
 53 | 
-54 | // Mutation to store embedding in the database
-55 | export const storeEmbedding = mutation({
-56 |   args: {
-57 |     messageId: v.id("messages"),
-58 |     vector: v.array(v.number()),
-59 |   },
-60 |   handler: async (ctx, { messageId, vector }) => {
-61 |     return await ctx.db.insert("messageEmbeddings", {
-62 |       messageId,
-63 |       vector,
-64 |       createdAt: Date.now(),
-65 |     });
-66 |   },
-67 | });
+54 | export const getUser = internalQuery({
+55 |   args: { userId: v.id("users") },
+56 |   handler: async (ctx, { userId }) => {
+57 |     return await ctx.db.get(userId);
+58 |   },
+59 | });
+60 | 
+61 | export const fetchMessages = internalQuery({
+62 |   args: { ids: v.array(v.id("messageEmbeddings")) },
+63 |   handler: async (ctx, { ids }) => {
+64 |     const results = [];
+65 |     for (const id of ids) {
+66 |       const embedding = await ctx.db.get(id);
+67 |       if (!embedding) continue;
 68 | 
-69 | // Query to fetch messages from search results
-70 | export const fetchSearchResults = query({
-71 |   args: {
-72 |     results: v.array(v.object({
-73 |       _id: v.id("messageEmbeddings"),
-74 |       _score: v.number(),
-75 |     })),
-76 |   },
-77 |   handler: async (ctx, { results }): Promise<MessageWithUser[]> => {
-78 |     const messages: MessageWithUser[] = [];
-79 |     
-80 |     for (const { _id } of results) {
-81 |       const embedding = await ctx.db.get(_id);
-82 |       if (!embedding) continue;
+69 |       const message = await ctx.db.get(embedding.messageId);
+70 |       if (!message) continue;
+71 | 
+72 |       const user = await ctx.db.get(message.userId);
+73 |       if (!user) continue;
+74 | 
+75 |       results.push({
+76 |         ...message,
+77 |         userName: user.name ?? "Unknown",
+78 |       });
+79 |     }
+80 |     return results;
+81 |   },
+82 | });
 83 | 
-84 |       const message = await ctx.db.get(embedding.messageId);
-85 |       if (!message) continue;
-86 | 
-87 |       const user = await ctx.db.get(message.userId);
-88 |       if (!user) continue;
+84 | export const generateAndStoreEmbedding = action({
+85 |   args: { messageId: v.id("messages") },
+86 |   handler: async (ctx, { messageId }) => {
+87 |     const message = await ctx.runQuery(internal.embeddings.getMessage, { messageId });
+88 |     if (!message) return;
 89 | 
-90 |       messages.push({
-91 |         ...message,
-92 |         userName: user.name ?? "Unknown",
-93 |       });
-94 |     }
-95 | 
-96 |     return messages;
-97 |   },
-98 | });
-99 | 
-100 | // Action to generate embedding and find similar messages
+90 |     const vector = await ctx.runAction(internal.embeddings.generateEmbedding, {
+91 |       text: message.text,
+92 |     });
+93 | 
+94 |     await ctx.runMutation(internal.embeddings.storeEmbedding, {
+95 |       messageId,
+96 |       vector,
+97 |     });
+98 |   },
+99 | });
+100 | 
 101 | export const findSimilarMessages = action({
 102 |   args: {
 103 |     text: v.string(),
 104 |     limit: v.optional(v.number()),
 105 |   },
-106 |   handler: async (ctx, { text, limit = 5 }): Promise<MessageWithUser[]> => {
-107 |     const apiKey = process.env.OPENAI_API_KEY;
-108 |     if (!apiKey) {
-109 |       throw new Error("OPENAI_API_KEY environment variable not set");
-110 |     }
+106 |   handler: async (ctx, { text, limit = 4 }): Promise<SearchResult[]> => {
+107 |     // Generate embedding for the search text
+108 |     const vector = await ctx.runAction(internal.embeddings.generateEmbedding, {
+109 |       text,
+110 |     });
 111 | 
-112 |     const response = await fetch(OPENAI_API_URL, {
-113 |       method: "POST",
-114 |       headers: {
-115 |         "Content-Type": "application/json",
-116 |         Authorization: `Bearer ${apiKey}`,
-117 |       },
-118 |       body: JSON.stringify({
-119 |         input: text,
-120 |         model: EMBEDDING_MODEL,
-121 |       }),
-122 |     });
-123 | 
-124 |     if (!response.ok) {
-125 |       throw new Error(`OpenAI API error: ${response.statusText}`);
-126 |     }
-127 | 
-128 |     const result = await response.json();
-129 |     const queryEmbedding = result.data[0].embedding;
-130 | 
-131 |     // Do vector search in the action
-132 |     const searchResults = await ctx.vectorSearch("messageEmbeddings", "by_vector", {
-133 |       vector: queryEmbedding,
-134 |       limit,
-135 |     });
-136 | 
-137 |     // Fetch the actual messages using a query
-138 |     return await ctx.runQuery(api.embeddings.fetchSearchResults, {
-139 |       results: searchResults,
-140 |     });
-141 |   },
-142 | }); 
+112 |     // Use vector index to find similar messages
+113 |     const results = await ctx.vectorSearch("messageEmbeddings", "by_vector", {
+114 |       vector,
+115 |       limit,
+116 |     });
+117 | 
+118 |     // Fetch messages using internal query
+119 |     const messages = await ctx.runQuery(internal.embeddings.fetchMessages, {
+120 |       ids: results.map(r => r._id),
+121 |     });
+122 | 
+123 |     // Add scores to messages
+124 |     return messages.map((msg, i) => ({
+125 |       ...msg,
+126 |       _score: results[i]._score,
+127 |     }));
+128 |   },
+129 | }); 
 ```
 
 convex/http.ts
@@ -1120,7 +1463,7 @@ convex/messages.ts
 1 | import { mutation, query } from "./_generated/server";
 2 | import { v } from "convex/values";
 3 | import { auth } from "./auth";
-4 | import { api } from "./_generated/api";
+4 | import { api, internal } from "./_generated/api";
 5 | 
 6 | export const getById = query({
 7 |   args: { messageId: v.id("messages") },
@@ -1175,310 +1518,331 @@ convex/messages.ts
 56 |     });
 57 | 
 58 |     // Generate and store embedding asynchronously
-59 |     await ctx.scheduler.runAfter(0, api.embeddings.generateEmbedding, {
+59 |     await ctx.scheduler.runAfter(0, api.embeddings.generateAndStoreEmbedding, {
 60 |       messageId,
-61 |       text,
-62 |     });
-63 | 
-64 |     // Only check for offline responses if this isn't already an AI message
-65 |     if (!isAI) {
-66 |       // Handle offline users based on channel type
-67 |       const TWO_MINUTES = 2 * 60 * 1000;
-68 |       const now = Date.now();
-69 | 
-70 |       if (channel.type === "dm" && channel.userIds) {
-71 |         // For DM channels, check all other users
-72 |         const otherUserIds = channel.userIds.filter(id => id !== effectiveUserId);
-73 |         
-74 |         for (const otherUserId of otherUserIds) {
-75 |           // Check user's presence
-76 |           const presence = await ctx.db
-77 |             .query("userPresence")
-78 |             .withIndex("by_workspace_and_user", (q) =>
-79 |               q.eq("workspaceId", channel.workspaceId).eq("userId", otherUserId)
-80 |             )
-81 |             .first();
-82 | 
-83 |           // If user is offline, queue AI response
-84 |           const isOffline = !presence || (now - presence.lastSeen > TWO_MINUTES);
-85 |           if (isOffline) {
-86 |             await ctx.scheduler.runAfter(0, api.ai.queueResponse, {
-87 |               channelId,
-88 |               userId: otherUserId,
-89 |               messageId,
-90 |             });
-91 |           }
-92 |         }
-93 |       } else if (parentMessageId) {
-94 |         // For channel messages, check if we're replying to someone
-95 |         const parentMessage = await ctx.db.get(parentMessageId);
-96 |         if (parentMessage && parentMessage.userId !== effectiveUserId) {
-97 |           // Check if parent message author is offline
-98 |           const presence = await ctx.db
-99 |             .query("userPresence")
-100 |             .withIndex("by_workspace_and_user", (q) =>
-101 |               q.eq("workspaceId", channel.workspaceId).eq("userId", parentMessage.userId)
-102 |             )
-103 |             .first();
+61 |     });
+62 | 
+63 |     // Only check for AI responses if this isn't already an AI message
+64 |     if (!isAI) {
+65 |       // Handle offline users based on channel type
+66 |       const TWO_MINUTES = 2 * 60 * 1000;
+67 |       const now = Date.now();
+68 | 
+69 |       if (channel.type === "dm" && channel.userIds) {
+70 |         // For DM channels, check all other users
+71 |         const otherUserIds = channel.userIds.filter(id => id !== effectiveUserId);
+72 |         
+73 |         for (const otherUserId of otherUserIds) {
+74 |           // Check user's presence
+75 |           const presence = await ctx.db
+76 |             .query("userPresence")
+77 |             .withIndex("by_workspace_and_user", (q) =>
+78 |               q.eq("workspaceId", channel.workspaceId).eq("userId", otherUserId)
+79 |             )
+80 |             .first();
+81 | 
+82 |           // If user is offline, queue AI response
+83 |           const isOffline = !presence || (now - presence.lastSeen > TWO_MINUTES);
+84 |           if (isOffline) {
+85 |             await ctx.scheduler.runAfter(0, api.ai.queueResponse, {
+86 |               channelId,
+87 |               userId: otherUserId,
+88 |               messageId,
+89 |             });
+90 |           }
+91 |         }
+92 |       } else if (parentMessageId) {
+93 |         // For channel messages, always respond if replying to someone else's message
+94 |         const parentMessage = await ctx.db.get(parentMessageId);
+95 |         if (parentMessage && parentMessage.userId !== effectiveUserId) {
+96 |           await ctx.scheduler.runAfter(0, api.ai.queueResponse, {
+97 |             channelId,
+98 |             userId: parentMessage.userId,
+99 |             messageId,
+100 |           });
+101 |         }
+102 |       }
+103 |     }
 104 | 
-105 |           const isOffline = !presence || (now - presence.lastSeen > TWO_MINUTES);
-106 |           if (isOffline) {
-107 |             await ctx.scheduler.runAfter(0, api.ai.queueResponse, {
-108 |               channelId,
-109 |               userId: parentMessage.userId,
-110 |               messageId,
-111 |             });
-112 |           }
-113 |         }
-114 |       }
-115 |     }
-116 | 
-117 |     return messageId;
-118 |   },
-119 | });
+105 |     return messageId;
+106 |   },
+107 | });
+108 | 
+109 | /**
+110 |  * list() - fetch main channel messages, including user name
+111 |  */
+112 | export const list = query({
+113 |   args: { channelId: v.id("channels") },
+114 |   handler: async (ctx, args) => {
+115 |     const messages = await ctx.db
+116 |       .query("messages")
+117 |       .withIndex("by_channel_id", (q) => q.eq("channelId", args.channelId))
+118 |       .filter((q) => q.eq(q.field("parentMessageId"), undefined))
+119 |       .collect();
 120 | 
-121 | /**
-122 |  * list() - fetch main channel messages, including user name
-123 |  */
-124 | export const list = query({
-125 |   args: { channelId: v.id("channels") },
-126 |   handler: async (ctx, args) => {
-127 |     const messages = await ctx.db
-128 |       .query("messages")
-129 |       .withIndex("by_channel_id", (q) => q.eq("channelId", args.channelId))
-130 |       .filter((q) => q.eq(q.field("parentMessageId"), undefined))
-131 |       .collect();
-132 | 
-133 |     const results = [];
-134 |     for (const msg of messages) {
-135 |       const userDoc = await ctx.db.get(msg.userId);
-136 |       
-137 |       const reactions = await ctx.db
-138 |         .query("reactions")
-139 |         .withIndex("by_message_id", (q) => q.eq("messageId", msg._id))
-140 |         .collect();
-141 | 
-142 |       const reactionGroups = reactions.reduce((acc, reaction) => {
-143 |         const code = encodeURIComponent(reaction.emoji);
-144 |         if (!acc[code]) {
-145 |           acc[code] = { count: 0, users: [], emoji: reaction.emoji };
-146 |         }
-147 |         acc[code].count++;
-148 |         acc[code].users.push(reaction.userId);
-149 |         return acc;
-150 |       }, {} as Record<string, { count: number; users: string[]; emoji: string }>);
-151 | 
-152 |       results.push({
-153 |         ...msg,
-154 |         userName: userDoc?.name || "Unknown",
-155 |         reactions: reactionGroups,
-156 |       });
-157 |     }
-158 | 
-159 |     return results;
-160 |   },
-161 | });
-162 | 
-163 | /**
-164 |  * listThread() - fetch all replies to a specified parentMessageId
-165 |  */
-166 | export const listThread = query({
-167 |   args: { parentMessageId: v.id("messages") },
-168 |   handler: async (ctx, { parentMessageId }) => {
-169 |     const userId = await auth.getUserId(ctx);
-170 |     if (!userId) return [];
-171 | 
-172 |     // Retrieve the parent message
-173 |     const parentMsg = await ctx.db.get(parentMessageId);
-174 |     if (!parentMsg) return [];
+121 |     const results = [];
+122 |     for (const msg of messages) {
+123 |       const userDoc = await ctx.db.get(msg.userId);
+124 |       
+125 |       const reactions = await ctx.db
+126 |         .query("reactions")
+127 |         .withIndex("by_message_id", (q) => q.eq("messageId", msg._id))
+128 |         .collect();
+129 | 
+130 |       const reactionGroups = reactions.reduce((acc, reaction) => {
+131 |         const code = encodeURIComponent(reaction.emoji);
+132 |         if (!acc[code]) {
+133 |           acc[code] = { count: 0, users: [], emoji: reaction.emoji };
+134 |         }
+135 |         acc[code].count++;
+136 |         acc[code].users.push(reaction.userId);
+137 |         return acc;
+138 |       }, {} as Record<string, { count: number; users: string[]; emoji: string }>);
+139 | 
+140 |       results.push({
+141 |         ...msg,
+142 |         userName: userDoc?.name || "Unknown",
+143 |         reactions: reactionGroups,
+144 |       });
+145 |     }
+146 | 
+147 |     return results;
+148 |   },
+149 | });
+150 | 
+151 | /**
+152 |  * listThread() - fetch all replies to a specified parentMessageId
+153 |  */
+154 | export const listThread = query({
+155 |   args: { parentMessageId: v.id("messages") },
+156 |   handler: async (ctx, { parentMessageId }) => {
+157 |     const userId = await auth.getUserId(ctx);
+158 |     if (!userId) return [];
+159 | 
+160 |     // Retrieve the parent message
+161 |     const parentMsg = await ctx.db.get(parentMessageId);
+162 |     if (!parentMsg) return [];
+163 | 
+164 |     const channel = await ctx.db.get(parentMsg.channelId);
+165 |     if (!channel) return [];
+166 | 
+167 |     // Check membership
+168 |     const member = await ctx.db
+169 |       .query("members")
+170 |       .withIndex("by_workspace_id_and_user_id", (q) =>
+171 |         q.eq("workspaceId", channel.workspaceId).eq("userId", userId)
+172 |       )
+173 |       .first();
+174 |     if (!member) return [];
 175 | 
-176 |     const channel = await ctx.db.get(parentMsg.channelId);
-177 |     if (!channel) return [];
-178 | 
-179 |     // Check membership
-180 |     const member = await ctx.db
-181 |       .query("members")
-182 |       .withIndex("by_workspace_id_and_user_id", (q) =>
-183 |         q.eq("workspaceId", channel.workspaceId).eq("userId", userId)
-184 |       )
-185 |       .first();
-186 |     if (!member) return [];
-187 | 
-188 |     // Query replies
-189 |     const replies = await ctx.db
-190 |       .query("messages")
-191 |       .withIndex("by_parent_message_id", (q) => q.eq("parentMessageId", parentMessageId))
-192 |       .order("asc")
-193 |       .collect();
-194 | 
-195 |     // Populate user name and reactions
-196 |     const results = [];
-197 |     for (const msg of replies) {
-198 |       const userDoc = await ctx.db.get(msg.userId);
-199 |       
-200 |       // Get reactions
-201 |       const reactions = await ctx.db
-202 |         .query("reactions")
-203 |         .withIndex("by_message_id", (q) => q.eq("messageId", msg._id))
-204 |         .collect();
-205 | 
-206 |       // Group reactions
-207 |       const reactionGroups = reactions.reduce((acc, reaction) => {
-208 |         const code = encodeURIComponent(reaction.emoji);
-209 |         if (!acc[code]) {
-210 |           acc[code] = { count: 0, users: [], emoji: reaction.emoji };
-211 |         }
-212 |         acc[code].count++;
-213 |         acc[code].users.push(reaction.userId);
-214 |         return acc;
-215 |       }, {} as Record<string, { count: number; users: string[]; emoji: string }>);
-216 | 
-217 |       results.push({
-218 |         ...msg,
-219 |         userName: userDoc?.name || "Unknown",
-220 |         reactions: reactionGroups,
-221 |       });
-222 |     }
-223 |     return results;
-224 |   },
-225 | });
+176 |     // Query replies
+177 |     const replies = await ctx.db
+178 |       .query("messages")
+179 |       .withIndex("by_parent_message_id", (q) => q.eq("parentMessageId", parentMessageId))
+180 |       .order("asc")
+181 |       .collect();
+182 | 
+183 |     // Populate user name and reactions
+184 |     const results = [];
+185 |     for (const msg of replies) {
+186 |       const userDoc = await ctx.db.get(msg.userId);
+187 |       
+188 |       // Get reactions
+189 |       const reactions = await ctx.db
+190 |         .query("reactions")
+191 |         .withIndex("by_message_id", (q) => q.eq("messageId", msg._id))
+192 |         .collect();
+193 | 
+194 |       // Group reactions
+195 |       const reactionGroups = reactions.reduce((acc, reaction) => {
+196 |         const code = encodeURIComponent(reaction.emoji);
+197 |         if (!acc[code]) {
+198 |           acc[code] = { count: 0, users: [], emoji: reaction.emoji };
+199 |         }
+200 |         acc[code].count++;
+201 |         acc[code].users.push(reaction.userId);
+202 |         return acc;
+203 |       }, {} as Record<string, { count: number; users: string[]; emoji: string }>);
+204 | 
+205 |       results.push({
+206 |         ...msg,
+207 |         userName: userDoc?.name || "Unknown",
+208 |         reactions: reactionGroups,
+209 |       });
+210 |     }
+211 |     return results;
+212 |   },
+213 | });
+214 | 
+215 | /**
+216 |  * toggleReaction - Add or remove an emoji reaction from a message
+217 |  */
+218 | export const toggleReaction = mutation({
+219 |   args: {
+220 |     messageId: v.id("messages"),
+221 |     emoji: v.string(),
+222 |   },
+223 |   handler: async (ctx, { messageId, emoji }) => {
+224 |     const userId = await auth.getUserId(ctx);
+225 |     if (!userId) throw new Error("Unauthorized");
 226 | 
-227 | /**
-228 |  * toggleReaction - Add or remove an emoji reaction from a message
-229 |  */
-230 | export const toggleReaction = mutation({
-231 |   args: {
-232 |     messageId: v.id("messages"),
-233 |     emoji: v.string(),
-234 |   },
-235 |   handler: async (ctx, { messageId, emoji }) => {
-236 |     const userId = await auth.getUserId(ctx);
-237 |     if (!userId) throw new Error("Unauthorized");
-238 | 
-239 |     // Get the message to check channel access
-240 |     const message = await ctx.db.get(messageId);
-241 |     if (!message) throw new Error("Message not found");
+227 |     // Get the message to check channel access
+228 |     const message = await ctx.db.get(messageId);
+229 |     if (!message) throw new Error("Message not found");
+230 | 
+231 |     const channel = await ctx.db.get(message.channelId);
+232 |     if (!channel) throw new Error("Channel not found");
+233 | 
+234 |     // Verify user is a member of the workspace
+235 |     const member = await ctx.db
+236 |       .query("members")
+237 |       .withIndex("by_workspace_id_and_user_id", (q) =>
+238 |         q.eq("workspaceId", channel.workspaceId).eq("userId", userId)
+239 |       )
+240 |       .first();
+241 |     if (!member) throw new Error("Not a member of this workspace");
 242 | 
-243 |     const channel = await ctx.db.get(message.channelId);
-244 |     if (!channel) throw new Error("Channel not found");
-245 | 
-246 |     // Verify user is a member of the workspace
-247 |     const member = await ctx.db
-248 |       .query("members")
-249 |       .withIndex("by_workspace_id_and_user_id", (q) =>
-250 |         q.eq("workspaceId", channel.workspaceId).eq("userId", userId)
-251 |       )
-252 |       .first();
-253 |     if (!member) throw new Error("Not a member of this workspace");
-254 | 
-255 |     // Check if reaction already exists
-256 |     const existing = await ctx.db
-257 |       .query("reactions")
-258 |       .withIndex("by_message_and_user", (q) =>
-259 |         q.eq("messageId", messageId).eq("userId", userId)
-260 |       )
-261 |       .filter((q) => q.eq(q.field("emoji"), emoji))
-262 |       .first();
-263 | 
-264 |     if (existing) {
-265 |       // Remove reaction
-266 |       await ctx.db.delete(existing._id);
-267 |     } else {
-268 |       // Add reaction
-269 |       await ctx.db.insert("reactions", {
-270 |         messageId,
-271 |         userId,
-272 |         emoji,
-273 |       });
-274 |     }
-275 |   },
-276 | });
+243 |     // Check if reaction already exists
+244 |     const existing = await ctx.db
+245 |       .query("reactions")
+246 |       .withIndex("by_message_and_user", (q) =>
+247 |         q.eq("messageId", messageId).eq("userId", userId)
+248 |       )
+249 |       .filter((q) => q.eq(q.field("emoji"), emoji))
+250 |       .first();
+251 | 
+252 |     if (existing) {
+253 |       // Remove reaction
+254 |       await ctx.db.delete(existing._id);
+255 |     } else {
+256 |       // Add reaction
+257 |       await ctx.db.insert("reactions", {
+258 |         messageId,
+259 |         userId,
+260 |         emoji,
+261 |       });
+262 |     }
+263 |   },
+264 | });
+265 | 
+266 | /**
+267 |  * get() - fetch a single message by ID, including user name
+268 |  */
+269 | export const get = query({
+270 |   args: { messageId: v.id("messages") },
+271 |   handler: async (ctx, { messageId }) => {
+272 |     const userId = await auth.getUserId(ctx);
+273 |     if (!userId) return null;
+274 | 
+275 |     const message = await ctx.db.get(messageId);
+276 |     if (!message) return null;
 277 | 
-278 | /**
-279 |  * get() - fetch a single message by ID, including user name
-280 |  */
-281 | export const get = query({
-282 |   args: { messageId: v.id("messages") },
-283 |   handler: async (ctx, { messageId }) => {
-284 |     const userId = await auth.getUserId(ctx);
-285 |     if (!userId) return null;
-286 | 
-287 |     const message = await ctx.db.get(messageId);
-288 |     if (!message) return null;
+278 |     const channel = await ctx.db.get(message.channelId);
+279 |     if (!channel) return null;
+280 | 
+281 |     // Check membership
+282 |     const member = await ctx.db
+283 |       .query("members")
+284 |       .withIndex("by_workspace_id_and_user_id", (q) =>
+285 |         q.eq("workspaceId", channel.workspaceId).eq("userId", userId)
+286 |       )
+287 |       .first();
+288 |     if (!member) return null;
 289 | 
-290 |     const channel = await ctx.db.get(message.channelId);
-291 |     if (!channel) return null;
+290 |     // Get user info
+291 |     const user = await ctx.db.get(message.userId);
 292 | 
-293 |     // Check membership
-294 |     const member = await ctx.db
-295 |       .query("members")
-296 |       .withIndex("by_workspace_id_and_user_id", (q) =>
-297 |         q.eq("workspaceId", channel.workspaceId).eq("userId", userId)
-298 |       )
-299 |       .first();
-300 |     if (!member) return null;
-301 | 
-302 |     // Get user info
-303 |     const user = await ctx.db.get(message.userId);
-304 | 
-305 |     // Get reactions
-306 |     const reactions = await ctx.db
-307 |       .query("reactions")
-308 |       .withIndex("by_message_id", (q) => q.eq("messageId", messageId))
-309 |       .collect();
-310 | 
-311 |     // Group reactions
-312 |     const reactionGroups = reactions.reduce((acc, reaction) => {
-313 |       const code = encodeURIComponent(reaction.emoji);
-314 |       if (!acc[code]) {
-315 |         acc[code] = { count: 0, users: [], emoji: reaction.emoji };
-316 |       }
-317 |       acc[code].count++;
-318 |       acc[code].users.push(reaction.userId);
-319 |       return acc;
-320 |     }, {} as Record<string, { count: number; users: string[]; emoji: string }>);
-321 | 
-322 |     return {
-323 |       ...message,
-324 |       userName: user?.name || "Unknown User",
-325 |       reactions: reactionGroups,
-326 |     };
-327 |   },
-328 | });
+293 |     // Get reactions
+294 |     const reactions = await ctx.db
+295 |       .query("reactions")
+296 |       .withIndex("by_message_id", (q) => q.eq("messageId", messageId))
+297 |       .collect();
+298 | 
+299 |     // Group reactions
+300 |     const reactionGroups = reactions.reduce((acc, reaction) => {
+301 |       const code = encodeURIComponent(reaction.emoji);
+302 |       if (!acc[code]) {
+303 |         acc[code] = { count: 0, users: [], emoji: reaction.emoji };
+304 |       }
+305 |       acc[code].count++;
+306 |       acc[code].users.push(reaction.userId);
+307 |       return acc;
+308 |     }, {} as Record<string, { count: number; users: string[]; emoji: string }>);
+309 | 
+310 |     return {
+311 |       ...message,
+312 |       userName: user?.name || "Unknown User",
+313 |       reactions: reactionGroups,
+314 |     };
+315 |   },
+316 | });
+317 | 
+318 | /**
+319 |  * getReplyCount - Get the number of replies for a message
+320 |  */
+321 | export const getReplyCount = query({
+322 |   args: { messageId: v.id("messages") },
+323 |   handler: async (ctx, { messageId }) => {
+324 |     const userId = await auth.getUserId(ctx);
+325 |     if (!userId) return 0;
+326 | 
+327 |     const message = await ctx.db.get(messageId);
+328 |     if (!message) return 0;
 329 | 
-330 | /**
-331 |  * getReplyCount - Get the number of replies for a message
-332 |  */
-333 | export const getReplyCount = query({
-334 |   args: { messageId: v.id("messages") },
-335 |   handler: async (ctx, { messageId }) => {
-336 |     const userId = await auth.getUserId(ctx);
-337 |     if (!userId) return 0;
-338 | 
-339 |     const message = await ctx.db.get(messageId);
-340 |     if (!message) return 0;
+330 |     const channel = await ctx.db.get(message.channelId);
+331 |     if (!channel) return 0;
+332 | 
+333 |     // Check membership
+334 |     const member = await ctx.db
+335 |       .query("members")
+336 |       .withIndex("by_workspace_id_and_user_id", (q) =>
+337 |         q.eq("workspaceId", channel.workspaceId).eq("userId", userId)
+338 |       )
+339 |       .first();
+340 |     if (!member) return 0;
 341 | 
-342 |     const channel = await ctx.db.get(message.channelId);
-343 |     if (!channel) return 0;
-344 | 
-345 |     // Check membership
-346 |     const member = await ctx.db
-347 |       .query("members")
-348 |       .withIndex("by_workspace_id_and_user_id", (q) =>
-349 |         q.eq("workspaceId", channel.workspaceId).eq("userId", userId)
-350 |       )
-351 |       .first();
-352 |     if (!member) return 0;
-353 | 
-354 |     // Count replies using the index
-355 |     const replies = await ctx.db
-356 |       .query("messages")
-357 |       .withIndex("by_parent_message_id", (q) => q.eq("parentMessageId", messageId))
-358 |       .collect();
-359 |     
-360 |     return replies.length;
-361 |   },
-362 | });
+342 |     // Count replies using the index
+343 |     const replies = await ctx.db
+344 |       .query("messages")
+345 |       .withIndex("by_parent_message_id", (q) => q.eq("parentMessageId", messageId))
+346 |       .collect();
+347 |     
+348 |     return replies.length;
+349 |   },
+350 | });
+351 | 
+352 | export const getMessage = query({
+353 |   args: { messageId: v.id("messages") },
+354 |   handler: async (ctx, { messageId }) => {
+355 |     return await ctx.db.get(messageId);
+356 |   },
+357 | });
+358 | 
+359 | export const listRecent = query({
+360 |   args: { 
+361 |     channelId: v.id("channels"),
+362 |     hours: v.number()
+363 |   },
+364 |   handler: async (ctx, { channelId, hours }) => {
+365 |     const cutoffTime = Date.now() - hours * 60 * 60 * 1000;
+366 |     const messages = await ctx.db
+367 |       .query("messages")
+368 |       .withIndex("by_channel_id", (q) => q.eq("channelId", channelId))
+369 |       .filter((q) => q.gt(q.field("createdAt"), cutoffTime))
+370 |       .collect();
+371 | 
+372 |     const results = [];
+373 |     for (const msg of messages) {
+374 |       const userDoc = await ctx.db.get(msg.userId);
+375 |       results.push({
+376 |         ...msg,
+377 |         userName: userDoc?.name || "Unknown"
+378 |       });
+379 |     }
+380 | 
+381 |     return results;
+382 |   }
+383 | });
 ```
 
 convex/presence.ts
@@ -1518,127 +1882,138 @@ convex/presence.ts
 33 |         )
 34 |         .first();
 35 | 
-36 |       if (existing) {
-37 |         await ctx.db.patch(existing._id, {
-38 |           status,
-39 |           customStatus,
-40 |           lastSeen: Date.now(),
-41 |         });
-42 |       } else {
-43 |         await ctx.db.insert("userPresence", {
-44 |           userId,
-45 |           workspaceId,
-46 |           status,
-47 |           customStatus,
-48 |           lastSeen: Date.now(),
-49 |         });
-50 |       }
-51 |     } catch {
-52 |       // Silently handle any DB operation failures
-53 |       return;
-54 |     }
-55 |   },
-56 | });
-57 | 
-58 | // Get presence for all users in a workspace
-59 | export const getWorkspacePresence = query({
-60 |   args: { workspaceId: v.id("workspaces") },
-61 |   handler: async (ctx, { workspaceId }) => {
-62 |     const userId = await auth.getUserId(ctx);
-63 |     if (!userId) return null;
-64 | 
-65 |     // Verify user is a member of the workspace
-66 |     const member = await ctx.db
-67 |       .query("members")
-68 |       .withIndex("by_workspace_id_and_user_id", (q) =>
-69 |         q.eq("workspaceId", workspaceId).eq("userId", userId)
-70 |       )
-71 |       .first();
-72 |     if (!member) return null;
-73 | 
-74 |     // Get all presence records for the workspace
-75 |     const presenceRecords = await ctx.db
-76 |       .query("userPresence")
-77 |       .withIndex("by_workspace", (q) => q.eq("workspaceId", workspaceId))
-78 |       .collect();
-79 | 
-80 |     // Mark users as offline if they haven't been seen in 2 minutes
-81 |     const TWO_MINUTES = 2 * 60 * 1000;
-82 |     const now = Date.now();
-83 | 
-84 |     const enhancedRecords = await Promise.all(
-85 |       presenceRecords.map(async (record) => {
-86 |         const user = await ctx.db.get(record.userId);
-87 |         return {
-88 |           ...record,
-89 |           status:
-90 |             now - record.lastSeen > TWO_MINUTES ? "offline" : record.status,
-91 |           userName: user?.name || "Unknown User",
-92 |         };
-93 |       })
-94 |     );
-95 | 
-96 |     return enhancedRecords;
-97 |   },
-98 | });
-99 | 
-100 | // Get presence for a specific user in a workspace
-101 | export const getUserPresence = query({
-102 |   args: {
-103 |     workspaceId: v.id("workspaces"),
-104 |     userId: v.id("users"),
-105 |   },
-106 |   handler: async (ctx, { workspaceId, userId: targetUserId }) => {
-107 |     const userId = await auth.getUserId(ctx);
-108 |     if (!userId) return null;
-109 | 
-110 |     // Verify user is a member of the workspace
-111 |     const member = await ctx.db
-112 |       .query("members")
-113 |       .withIndex("by_workspace_id_and_user_id", (q) =>
-114 |         q.eq("workspaceId", workspaceId).eq("userId", userId)
-115 |       )
-116 |       .first();
-117 |     if (!member) return null;
-118 | 
-119 |     // Get presence record for the target user
-120 |     const presence = await ctx.db
-121 |       .query("userPresence")
-122 |       .withIndex("by_workspace_and_user", (q) =>
-123 |         q.eq("workspaceId", workspaceId).eq("userId", targetUserId)
-124 |       )
-125 |       .first();
-126 | 
-127 |     if (!presence) return null;
+36 |       const now = Date.now();
+37 | 
+38 |       if (existing) {
+39 |         await ctx.db.patch(existing._id, {
+40 |           status,
+41 |           customStatus,
+42 |           lastSeen: now,
+43 |         });
+44 |       } else {
+45 |         await ctx.db.insert("userPresence", {
+46 |           userId,
+47 |           workspaceId,
+48 |           status,
+49 |           customStatus,
+50 |           lastSeen: now,
+51 |         });
+52 |       }
+53 |     } catch (error: any) {
+54 |       // Silently handle any DB operation failures
+55 |       return;
+56 |     }
+57 |   },
+58 | });
+59 | 
+60 | // Get presence for all users in a workspace
+61 | export const getWorkspacePresence = query({
+62 |   args: { workspaceId: v.id("workspaces") },
+63 |   handler: async (ctx, { workspaceId }) => {
+64 |     const userId = await auth.getUserId(ctx);
+65 |     if (!userId) return null;
+66 | 
+67 |     // Verify user is a member of the workspace
+68 |     const member = await ctx.db
+69 |       .query("members")
+70 |       .withIndex("by_workspace_id_and_user_id", (q) =>
+71 |         q.eq("workspaceId", workspaceId).eq("userId", userId)
+72 |       )
+73 |       .first();
+74 |     if (!member) return null;
+75 | 
+76 |     // Get all presence records for the workspace
+77 |     const presenceRecords = await ctx.db
+78 |       .query("userPresence")
+79 |       .withIndex("by_workspace", (q) => q.eq("workspaceId", workspaceId))
+80 |       .collect();
+81 | 
+82 |     // Mark users as offline if they haven't been seen in 2 minutes
+83 |     const TWO_MINUTES = 2 * 60 * 1000;
+84 |     const now = Date.now();
+85 | 
+86 |     const enhancedRecords = await Promise.all(
+87 |       presenceRecords.map(async (record) => {
+88 |         const user = await ctx.db.get(record.userId);
+89 |         return {
+90 |           ...record,
+91 |           status:
+92 |             now - record.lastSeen > TWO_MINUTES ? "offline" : record.status,
+93 |           userName: user?.name || "Unknown User",
+94 |         };
+95 |       })
+96 |     );
+97 | 
+98 |     return enhancedRecords;
+99 |   },
+100 | });
+101 | 
+102 | // Get presence for a specific user in a workspace
+103 | export const getUserPresence = query({
+104 |   args: {
+105 |     workspaceId: v.id("workspaces"),
+106 |     userId: v.id("users"),
+107 |   },
+108 |   handler: async (ctx, { workspaceId, userId: targetUserId }) => {
+109 |     const userId = await auth.getUserId(ctx);
+110 |     if (!userId) return null;
+111 | 
+112 |     // Verify user is a member of the workspace
+113 |     const member = await ctx.db
+114 |       .query("members")
+115 |       .withIndex("by_workspace_id_and_user_id", (q) =>
+116 |         q.eq("workspaceId", workspaceId).eq("userId", userId)
+117 |       )
+118 |       .first();
+119 |     if (!member) return null;
+120 | 
+121 |     // Get presence record for the target user
+122 |     const presence = await ctx.db
+123 |       .query("userPresence")
+124 |       .withIndex("by_workspace_and_user", (q) =>
+125 |         q.eq("workspaceId", workspaceId).eq("userId", targetUserId)
+126 |       )
+127 |       .first();
 128 | 
-129 |     // Check if user is offline based on last seen
-130 |     const TWO_MINUTES = 2 * 60 * 1000;
-131 |     const now = Date.now();
-132 |     const status = now - presence.lastSeen > TWO_MINUTES ? "offline" : presence.status;
-133 | 
-134 |     const user = await ctx.db.get(targetUserId);
-135 |     return {
-136 |       ...presence,
-137 |       status,
-138 |       userName: user?.name || "Unknown User",
-139 |     };
-140 |   },
-141 | });
-142 | 
-143 | export const list = query({
-144 |   args: {
-145 |     workspaceId: v.id("workspaces"),
-146 |   },
-147 |   handler: async (ctx, args) => {
-148 |     const presence = await ctx.db
-149 |       .query("userPresence")
-150 |       .withIndex("by_workspace", (q) => q.eq("workspaceId", args.workspaceId))
-151 |       .filter((q) => q.eq(q.field("status"), "online"))
-152 |       .collect();
-153 | 
-154 |     return presence;
-155 |   },
-156 | }); 
+129 |     if (!presence) return null;
+130 | 
+131 |     // Check if user is offline based on last seen
+132 |     const TWO_MINUTES = 2 * 60 * 1000;
+133 |     const now = Date.now();
+134 |     const status = now - presence.lastSeen > TWO_MINUTES ? "offline" : presence.status;
+135 | 
+136 |     const user = await ctx.db.get(targetUserId);
+137 |     return {
+138 |       ...presence,
+139 |       status,
+140 |       userName: user?.name || "Unknown User",
+141 |     };
+142 |   },
+143 | });
+144 | 
+145 | export const list = query({
+146 |   args: {
+147 |     workspaceId: v.id("workspaces"),
+148 |   },
+149 |   handler: async (ctx, args) => {
+150 |     const userId = await auth.getUserId(ctx);
+151 |     if (!userId) return [];
+152 | 
+153 |     const presence = await ctx.db
+154 |       .query("userPresence")
+155 |       .withIndex("by_workspace", (q) => q.eq("workspaceId", args.workspaceId))
+156 |       .collect();
+157 | 
+158 |     // Mark users as offline if they haven't been seen in 2 minutes
+159 |     const TWO_MINUTES = 2 * 60 * 1000;
+160 |     const now = Date.now();
+161 | 
+162 |     return presence.map(record => ({
+163 |       ...record,
+164 |       status: now - record.lastSeen > TWO_MINUTES ? "offline" : record.status
+165 |     }));
+166 |   },
+167 | }); 
 ```
 
 convex/schema.ts
@@ -1695,53 +2070,54 @@ convex/schema.ts
 50 |     channelId: v.id("channels"),
 51 |     userId: v.id("users"),
 52 |     text: v.string(),
-53 |     createdAt: v.number(),
-54 |     parentMessageId: v.optional(v.id("messages")),
-55 |     isAI: v.optional(v.boolean()),
-56 |   })
-57 |     .index("by_channel_id", ["channelId"])
-58 |     .index("by_user_id", ["userId"])
-59 |     .index("by_parent_message_id", ["parentMessageId"]),
-60 | 
-61 |   messageEmbeddings: defineTable({
-62 |     messageId: v.id("messages"),
-63 |     vector: v.array(v.number()),
-64 |     createdAt: v.number(),
-65 |   })
-66 |     .index("by_message_id", ["messageId"])
-67 |     .vectorIndex("by_vector", {
-68 |       vectorField: "vector",
-69 |       dimensions: 1536,
-70 |     }),
-71 | 
-72 |   aiTasks: defineTable({
-73 |     channelId: v.id("channels"),
-74 |     userId: v.id("users"),
-75 |     messageId: v.id("messages"),
-76 |     status: v.union(
-77 |       v.literal("pending"),
-78 |       v.literal("processing"),
-79 |       v.literal("completed"),
-80 |       v.literal("failed")
-81 |     ),
-82 |     createdAt: v.number(),
-83 |     completedAt: v.optional(v.number()),
-84 |     error: v.optional(v.string()),
-85 |   })
-86 |     .index("by_status", ["status"])
-87 |     .index("by_channel", ["channelId"])
-88 |     .index("by_user", ["userId"]),
-89 | 
-90 |   reactions: defineTable({
-91 |     messageId: v.id("messages"),
-92 |     userId: v.id("users"),
-93 |     emoji: v.string(),
-94 |   })
-95 |     .index("by_message_id", ["messageId"])
-96 |     .index("by_message_and_user", ["messageId", "userId"]),
-97 | });
-98 | 
-99 | export default schema;
+53 |     formattedText: v.optional(v.string()),
+54 |     createdAt: v.number(),
+55 |     parentMessageId: v.optional(v.id("messages")),
+56 |     isAI: v.optional(v.boolean()),
+57 |   })
+58 |     .index("by_channel_id", ["channelId"])
+59 |     .index("by_user_id", ["userId"])
+60 |     .index("by_parent_message_id", ["parentMessageId"]),
+61 | 
+62 |   messageEmbeddings: defineTable({
+63 |     messageId: v.id("messages"),
+64 |     vector: v.array(v.number()),
+65 |     createdAt: v.number(),
+66 |   })
+67 |     .index("by_message_id", ["messageId"])
+68 |     .vectorIndex("by_vector", {
+69 |       vectorField: "vector",
+70 |       dimensions: 1536,
+71 |     }),
+72 | 
+73 |   aiTasks: defineTable({
+74 |     channelId: v.id("channels"),
+75 |     userId: v.id("users"),
+76 |     messageId: v.id("messages"),
+77 |     status: v.union(
+78 |       v.literal("pending"),
+79 |       v.literal("processing"),
+80 |       v.literal("completed"),
+81 |       v.literal("failed")
+82 |     ),
+83 |     createdAt: v.number(),
+84 |     completedAt: v.optional(v.number()),
+85 |     error: v.optional(v.string()),
+86 |   })
+87 |     .index("by_status", ["status"])
+88 |     .index("by_channel", ["channelId"])
+89 |     .index("by_user", ["userId"]),
+90 | 
+91 |   reactions: defineTable({
+92 |     messageId: v.id("messages"),
+93 |     userId: v.id("users"),
+94 |     emoji: v.string(),
+95 |   })
+96 |     .index("by_message_id", ["messageId"])
+97 |     .index("by_message_and_user", ["messageId", "userId"]),
+98 | });
+99 | 
+100 | export default schema;
 ```
 
 convex/tsconfig.json
@@ -2165,42 +2541,45 @@ package.json
 23 |     "@radix-ui/react-separator": "^1.1.1",
 24 |     "@radix-ui/react-slot": "^1.1.1",
 25 |     "@radix-ui/react-tooltip": "^1.1.6",
-26 |     "@types/jwt-decode": "^2.2.1",
-27 |     "class-variance-authority": "^0.7.1",
-28 |     "clsx": "^2.1.1",
-29 |     "convex": "^1.17.4",
-30 |     "emoji-mart": "^5.6.0",
-31 |     "icons": "^1.0.0",
-32 |     "jotai": "^2.11.0",
-33 |     "jwt-decode": "^3.1.2",
-34 |     "lucide-react": "^0.469.0",
-35 |     "next": "15.1.4",
-36 |     "react": "^18.3.1",
-37 |     "react-dom": "^18.3.1",
-38 |     "react-hook-form": "^7.54.2",
-39 |     "react-icons": "^5.4.0",
-40 |     "react-resizable-panels": "^2.1.7",
-41 |     "react-use": "^17.6.0",
-42 |     "react-verification-input": "^4.2.0",
-43 |     "sonner": "^1.7.1",
-44 |     "tailwind-merge": "^2.6.0",
-45 |     "tailwindcss-animate": "^1.0.7",
-46 |     "zod": "^3.24.1",
-47 |     "zustand": "^5.0.3"
-48 |   },
-49 |   "devDependencies": {
-50 |     "@eslint/eslintrc": "^3",
-51 |     "@shadcn/ui": "^0.0.4",
-52 |     "@types/node": "^20",
-53 |     "@types/react": "^19",
-54 |     "@types/react-dom": "^19",
-55 |     "eslint": "^9",
-56 |     "eslint-config-next": "15.1.4",
-57 |     "postcss": "^8",
-58 |     "tailwindcss": "^3.4.1",
-59 |     "typescript": "^5"
-60 |   }
-61 | }
+26 |     "@tailwindcss/typography": "^0.5.16",
+27 |     "@types/jwt-decode": "^2.2.1",
+28 |     "class-variance-authority": "^0.7.1",
+29 |     "clsx": "^2.1.1",
+30 |     "convex": "^1.17.4",
+31 |     "emoji-mart": "^5.6.0",
+32 |     "icons": "^1.0.0",
+33 |     "jotai": "^2.11.0",
+34 |     "jwt-decode": "^3.1.2",
+35 |     "lucide-react": "^0.471.1",
+36 |     "next": "15.1.4",
+37 |     "openai": "^4.78.1",
+38 |     "react": "^18.3.1",
+39 |     "react-dom": "^18.3.1",
+40 |     "react-hook-form": "^7.54.2",
+41 |     "react-icons": "^5.4.0",
+42 |     "react-markdown": "^9.0.3",
+43 |     "react-resizable-panels": "^2.1.7",
+44 |     "react-use": "^17.6.0",
+45 |     "react-verification-input": "^4.2.0",
+46 |     "sonner": "^1.7.1",
+47 |     "tailwind-merge": "^2.6.0",
+48 |     "tailwindcss-animate": "^1.0.7",
+49 |     "zod": "^3.24.1",
+50 |     "zustand": "^5.0.3"
+51 |   },
+52 |   "devDependencies": {
+53 |     "@eslint/eslintrc": "^3",
+54 |     "@shadcn/ui": "^0.0.4",
+55 |     "@types/node": "^20",
+56 |     "@types/react": "^19",
+57 |     "@types/react-dom": "^19",
+58 |     "eslint": "^9",
+59 |     "eslint-config-next": "15.1.4",
+60 |     "postcss": "^8",
+61 |     "tailwindcss": "^3.4.1",
+62 |     "typescript": "^5"
+63 |   }
+64 | }
 ```
 
 postcss.config.mjs
@@ -4343,49 +4722,49 @@ src/app/page.tsx
 5 | import { useRouter } from "next/navigation";
 6 | import { UserButton } from "./features/auth/components/user-button";
 7 | import { useGetWorkspaces } from "./features/workspaces/api/use-get-workspaces";
-8 | import { useMemo, useEffect } from "react";
-9 | import { useCreateWorkspaceModal } from "./features/workspaces/store/use-create-workspace-modal";
+8 | import { useCreateWorkspaceModal } from "./features/workspaces/store/use-create-workspace-modal";
+9 | import { useEffect } from "react";
 10 | 
 11 | export default function Home() {
-12 | 
-13 |   const { signOut } = useAuthActions();
-14 |   const router = useRouter();
-15 |   const { data, isLoading } = useGetWorkspaces();
-16 |   const [open, setOpen] = useCreateWorkspaceModal();
-17 | 
-18 |   const workspaceId = useMemo(() => data?.[0]?._id, [data]);
+12 |   const { signOut } = useAuthActions();
+13 |   const router = useRouter();
+14 |   const { data: workspaces, isLoading } = useGetWorkspaces();
+15 |   const [open, setOpen] = useCreateWorkspaceModal();
+16 | 
+17 |   useEffect(() => {
+18 |     if (isLoading) return;
 19 | 
-20 |   useEffect(() => {
-21 |     if (isLoading) return;
-22 | 
-23 |     if (workspaceId) {
-24 |       router.push(`/workspace/${workspaceId}`);
-25 |     } else if (!open) {
-26 |       setOpen(true);
-27 |     }
-28 |   }, [workspaceId, isLoading, open, setOpen, router]);
-29 | 
-30 |   const handleSignOut = async () => {
-31 |     await signOut();
-32 |     router.push("/signin");
-33 |   };
-34 | 
-35 |   return (
-36 |     <div className="min-h-screen flex flex-col items-center justify-center gap-4">
-37 |       {/* <UserButton />
-38 |       <h1 className="text-2xl font-bold">Logged in</h1>
-39 |       {isLoading && <p>Loading workspaces...</p>}
-40 |       {data?.map((workspace) => (
-41 |         <div key={workspace._id}>
-42 |           <p>{workspace.name}</p>
-43 |         </div>
-44 |       ))}
+20 |     const workspaceId = workspaces?.[0]?._id;
+21 |     if (workspaceId) {
+22 |       router.push(`/workspace/${workspaceId}`);
+23 |     } else if (!open) {
+24 |       setOpen(true);
+25 |     }
+26 |   }, [workspaces, isLoading, open, setOpen, router]);
+27 | 
+28 |   const handleSignOut = async () => {
+29 |     await signOut();
+30 |     router.push("/signin");
+31 |   };
+32 | 
+33 |   if (isLoading) {
+34 |     return (
+35 |       <div className="min-h-screen flex flex-col items-center justify-center">
+36 |         <p>Loading...</p>
+37 |       </div>
+38 |     );
+39 |   }
+40 | 
+41 |   return (
+42 |     <div className="min-h-screen flex flex-col items-center justify-center gap-4">
+43 |       <UserButton />
+44 |       <h1 className="text-2xl font-bold">Welcome</h1>
 45 |       <Button 
 46 |         variant="outline"
 47 |         onClick={handleSignOut}
 48 |       >
 49 |         Sign Out
-50 |       </Button> */}
+50 |       </Button>
 51 |     </div>
 52 |   );
 53 | }
@@ -4424,7 +4803,7 @@ src/app/workspace/[workspaceId]/channel/[channelId]/page.tsx
 10 | import { useQuery, useMutation } from "convex/react";
 11 | import { api } from "../../../../../../convex/_generated/api";
 12 | import { EmojiPicker } from "@/components/emoji-picker";
-13 | import { MessageSquare, Users, UserPlus, Smile, Hash, Circle } from "lucide-react";
+13 | import { MessageSquare, Users, UserPlus, Smile, Hash, Circle, Plus } from "lucide-react";
 14 | import { Id } from "../../../../../../convex/_generated/dataModel";
 15 | import { MessagePresence } from "@/app/features/presence/components/message-presence";
 16 | import { usePresence } from "@/app/features/presence/hooks/use-presence";
@@ -4433,505 +4812,597 @@ src/app/workspace/[workspaceId]/channel/[channelId]/page.tsx
 19 | import { InviteModal } from "../../invite-modal";
 20 | import { useGetChannels } from "@/app/features/channels/api/use-get-channels";
 21 | import { cn } from "@/lib/utils";
-22 | 
-23 | const EMOJI_MAP: Record<string, string> = {
-24 |   thumbs_up: "👍",
-25 |   heart: "❤️",
-26 |   smile: "😊",
-27 |   party: "🎉",
-28 |   fire: "🔥",
-29 |   eyes: "👀",
-30 |   "100": "💯",
-31 |   sparkles: "✨",
-32 |   raised_hands: "🙌",
-33 |   clap: "👏",
-34 | };
-35 | 
-36 | const ChannelHeader = ({ channel }: { channel: any }) => {
-37 |   const isDM = channel.type === "dm";
-38 |   
-39 |   return (
-40 |     <div className="flex items-center px-6 py-4 border-b bg-white shadow-sm">
-41 |       <div className="flex items-center gap-3">
-42 |         {isDM ? (
-43 |           <>
-44 |             <Circle className="h-3 w-3 text-emerald-500 shrink-0" />
-45 |             <h1 className="text-xl font-semibold text-emerald-900">{channel.name}</h1>
-46 |           </>
-47 |         ) : (
-48 |           <>
-49 |             <Hash className="h-5 w-5 text-emerald-700 shrink-0" />
-50 |             <h1 className="text-xl font-semibold text-emerald-900">{channel.name}</h1>
-51 |           </>
-52 |         )}
-53 |       </div>
-54 |     </div>
-55 |   );
-56 | };
-57 | 
-58 | export default function ChannelPage() {
-59 |   const params = useParams();
-60 |   const channelId = params.channelId as string;
-61 |   const workspaceId = params.workspaceId as Id<"workspaces">;
-62 |   const messagesEndRef = useRef<HTMLDivElement>(null);
-63 |   const [isFirstLoad, setIsFirstLoad] = useState(true);
-64 |   const [inviteModalOpen, setInviteModalOpen] = useState(false);
-65 |   
-66 |   // Initialize presence
-67 |   usePresence(workspaceId);
-68 | 
-69 |   const { data: workspace } = useGetWorkspace({ id: workspaceId });
-70 |   const { data: members } = useGetMembers({ workspaceId });
-71 |   const { data: channels } = useGetChannels({ workspaceId });
-72 |   const messages = useQuery(api.messages.list, { channelId: channelId as Id<"channels"> });
-73 |   const sendMessage = useMutation(api.messages.send);
-74 |   const toggleReaction = useMutation(api.messages.toggleReaction);
-75 | 
-76 |   const currentChannel = channels?.find(c => c._id === channelId);
-77 | 
-78 |   const [text, setText] = useState("");
-79 |   const [selectedThread, setSelectedThread] = useState<Id<"messages"> | null>(null);
-80 | 
-81 |   // Initial scroll to bottom without animation
-82 |   useEffect(() => {
-83 |     if (messages && isFirstLoad) {
-84 |       messagesEndRef.current?.scrollIntoView();
-85 |       setIsFirstLoad(false);
-86 |     }
-87 |   }, [messages, isFirstLoad]);
-88 | 
-89 |   // Smooth scroll to bottom for new messages
-90 |   useEffect(() => {
-91 |     if (!isFirstLoad && messages) {
-92 |       messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
-93 |     }
-94 |   }, [messages, isFirstLoad]);
-95 | 
-96 |   const handleReaction = async (messageId: Id<"messages">, emoji: string) => {
-97 |     try {
-98 |       await toggleReaction({ messageId, emoji });
-99 |     } catch (error) {
-100 |       console.error("Error toggling reaction:", error);
-101 |     }
-102 |   };
-103 | 
-104 |   const handleSend = async () => {
-105 |     if (!text) return;
-106 |     try {
-107 |       await sendMessage({ 
-108 |         channelId: channelId as Id<"channels">, 
-109 |         text,
-110 |         parentMessageId: selectedThread || undefined
-111 |       });
-112 |       setText("");
+22 | import { useCurrentUser } from "@/app/features/auth/api/use-current-user";
+23 | import { SummaryDropdown } from "@/components/ui/summary-dropdown";
+24 | import { UserActionMenu } from "@/components/ui/user-action-menu";
+25 | 
+26 | const EMOJI_MAP: Record<string, string> = {
+27 |   thumbs_up: "👍",
+28 |   heart: "❤️",
+29 |   smile: "😊",
+30 |   party: "🎉",
+31 |   fire: "🔥",
+32 |   eyes: "👀",
+33 |   "100": "💯",
+34 |   sparkles: "✨",
+35 |   raised_hands: "🙌",
+36 |   clap: "👏",
+37 | };
+38 | 
+39 | const ChannelHeader = ({ channel }: { channel: any }) => {
+40 |   const isDM = channel.type === "dm";
+41 |   const params = useParams();
+42 |   const workspaceId = params.workspaceId as Id<"workspaces">;
+43 |   const { data: currentUser } = useCurrentUser();
+44 |   const otherUserId = isDM ? channel.userIds?.find((id: string) => id !== currentUser?._id) : null;
+45 |   
+46 |   return (
+47 |     <div className="flex items-center px-6 py-4 border-b bg-white shadow-sm">
+48 |       <div className="flex items-center gap-3">
+49 |         {isDM ? (
+50 |           <>
+51 |             {otherUserId && (
+52 |               <MessagePresence 
+53 |                 workspaceId={workspaceId} 
+54 |                 userId={otherUserId as Id<"users">} 
+55 |                 className="h-3 w-3" 
+56 |               />
+57 |             )}
+58 |             <h1 className="text-xl font-semibold text-emerald-900">{channel.name}</h1>
+59 |           </>
+60 |         ) : (
+61 |           <>
+62 |             <Hash className="h-5 w-5 text-emerald-700 shrink-0" />
+63 |             <h1 className="text-xl font-semibold text-emerald-900">{channel.name}</h1>
+64 |           </>
+65 |         )}
+66 |       </div>
+67 |     </div>
+68 |   );
+69 | };
+70 | 
+71 | export default function ChannelPage() {
+72 |   const params = useParams();
+73 |   const channelId = params.channelId as string;
+74 |   const workspaceId = params.workspaceId as Id<"workspaces">;
+75 |   const messagesEndRef = useRef<HTMLDivElement>(null);
+76 |   const [isFirstLoad, setIsFirstLoad] = useState(true);
+77 |   const [inviteModalOpen, setInviteModalOpen] = useState(false);
+78 |   
+79 |   // Initialize presence
+80 |   usePresence(workspaceId);
+81 | 
+82 |   const { data: workspace } = useGetWorkspace({ id: workspaceId });
+83 |   const { data: members } = useGetMembers({ workspaceId });
+84 |   const { data: channels } = useGetChannels({ workspaceId });
+85 |   const messages = useQuery(api.messages.list, { channelId: channelId as Id<"channels"> });
+86 |   const sendMessage = useMutation(api.messages.send);
+87 |   const toggleReaction = useMutation(api.messages.toggleReaction);
+88 |   const { data: currentUser } = useCurrentUser();
+89 | 
+90 |   const currentChannel = channels?.find(c => c._id === channelId);
+91 | 
+92 |   const [text, setText] = useState("");
+93 |   const [selectedThread, setSelectedThread] = useState<Id<"messages"> | null>(null);
+94 | 
+95 |   // Initial scroll to bottom without animation
+96 |   useEffect(() => {
+97 |     if (messages && isFirstLoad) {
+98 |       messagesEndRef.current?.scrollIntoView();
+99 |       setIsFirstLoad(false);
+100 |     }
+101 |   }, [messages, isFirstLoad]);
+102 | 
+103 |   // Smooth scroll to bottom for new messages
+104 |   useEffect(() => {
+105 |     if (!isFirstLoad && messages) {
+106 |       messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
+107 |     }
+108 |   }, [messages, isFirstLoad]);
+109 | 
+110 |   const handleReaction = async (messageId: Id<"messages">, emoji: string) => {
+111 |     try {
+112 |       await toggleReaction({ messageId, emoji });
 113 |     } catch (error) {
-114 |       console.error("Error sending message:", error);
+114 |       console.error("Error toggling reaction:", error);
 115 |     }
 116 |   };
 117 | 
-118 |   const Message = ({ msg }: { msg: any }) => {
-119 |     const replyCount = useQuery(api.messages.getReplyCount, { messageId: msg._id }) ?? 0;
-120 |     const params = useParams();
-121 |     const workspaceId = params.workspaceId as Id<"workspaces">;
-122 |     const currentChannel = channels?.find(c => c._id === channelId);
-123 |     const isDM = currentChannel?.type === "dm";
-124 |     
-125 |     if (!isDM) {
-126 |       return (
-127 |         <div className="border border-emerald-100 p-3 rounded-lg hover:bg-emerald-50/50 transition bg-white shadow-sm">
-128 |           <div className="text-sm text-emerald-800 flex justify-between items-center mb-2">
-129 |             <div className="flex items-center gap-2">
-130 |               <strong className="font-medium text-emerald-900">{msg.userName}</strong>
-131 |               {msg.isAI && (
-132 |                 <span className="text-xs text-emerald-400 flex items-center gap-1">
-133 |                   <span className="inline-block w-3 h-3">🤖</span>
-134 |                   <span className="opacity-75">AI</span>
-135 |                 </span>
-136 |               )}
-137 |               <MessagePresence 
-138 |                 workspaceId={workspaceId} 
-139 |                 userId={msg.userId} 
-140 |                 className="h-2 w-2 shrink-0" 
-141 |               />
-142 |               <span className="text-xs text-emerald-500">
-143 |                 {new Date(msg.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
-144 |               </span>
-145 |             </div>
-146 |             <div className="flex items-center gap-2">
-147 |               {replyCount > 0 && (
-148 |                 <button
-149 |                   className="text-xs text-emerald-600 hover:text-emerald-700 hover:underline flex items-center gap-1"
-150 |                   onClick={() => setSelectedThread(msg._id)}
-151 |                 >
-152 |                   <MessageSquare className="h-3 w-3" />
-153 |                   {replyCount} {replyCount === 1 ? 'reply' : 'replies'}
-154 |                 </button>
-155 |               )}
-156 |               <Button
-157 |                 variant="ghost"
-158 |                 size="sm"
-159 |                 className="py-1 h-7 text-xs text-emerald-600 hover:text-emerald-700 hover:bg-emerald-50"
-160 |                 onClick={() => setSelectedThread(msg._id)}
-161 |               >
-162 |                 Reply
-163 |               </Button>
-164 |             </div>
-165 |           </div>
-166 |           <div className="text-sm text-emerald-900 leading-relaxed">{msg.text}</div>
-167 |           <div className="mt-3 flex flex-wrap gap-1">
-168 |             {Object.entries(msg.reactions || {}).map(([code, data]: [string, any]) => (
-169 |               <button
-170 |                 key={code}
-171 |                 onClick={() => handleReaction(msg._id, code)}
-172 |                 className="inline-flex items-center gap-1 px-2 py-0.5 bg-emerald-50 hover:bg-emerald-100 border border-emerald-100 rounded-full text-sm transition-colors"
-173 |               >
-174 |                 <span>{EMOJI_MAP[code] || code}</span>
-175 |                 <span className="text-xs text-emerald-600">{data.count}</span>
-176 |               </button>
-177 |             ))}
-178 |             <EmojiPicker
-179 |               onEmojiSelect={(code) => handleReaction(msg._id, code)}
-180 |               trigger={
-181 |                 <button className="p-1.5 hover:bg-emerald-50 rounded-full transition-colors">
-182 |                   <Smile className="h-4 w-4 text-emerald-400 hover:text-emerald-500" />
-183 |                 </button>
-184 |               }
-185 |             />
-186 |           </div>
-187 |         </div>
-188 |       );
-189 |     }
-190 | 
-191 |     // DM Message Style
-192 |     return (
-193 |       <div className="flex flex-col max-w-[60%] space-y-1 mb-4">
-194 |         <div className="flex items-center gap-2 ml-2">
-195 |           <span className="text-xs text-emerald-500">
-196 |             {new Date(msg.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
-197 |           </span>
-198 |           {msg.isAI && (
-199 |             <span className="text-xs text-emerald-400 flex items-center gap-1">
-200 |               <span className="inline-block w-3 h-3">🤖</span>
-201 |               <span className="opacity-75">AI</span>
-202 |             </span>
-203 |           )}
-204 |         </div>
-205 |         <div className="bg-emerald-600 text-white px-3.5 py-2 rounded-[18px] rounded-br-none shadow-sm">
-206 |           <div className="text-sm leading-relaxed break-words">
-207 |             {msg.text}
-208 |           </div>
-209 |           {(replyCount > 0 || msg.reactions) && (
-210 |             <div className="mt-2 pt-2 border-t border-emerald-500/30">
-211 |               {replyCount > 0 && (
-212 |                 <button
-213 |                   className="text-xs text-emerald-100 hover:text-white flex items-center gap-1 mb-2"
-214 |                   onClick={() => setSelectedThread(msg._id)}
-215 |                 >
-216 |                   <MessageSquare className="h-3 w-3" />
-217 |                   {replyCount} {replyCount === 1 ? 'reply' : 'replies'}
-218 |                 </button>
-219 |               )}
-220 |               {Object.entries(msg.reactions || {}).map(([code, data]: [string, any]) => (
-221 |                 <button
-222 |                   key={code}
-223 |                   onClick={() => handleReaction(msg._id, code)}
-224 |                   className="inline-flex items-center gap-1 mr-1 px-2 py-0.5 bg-emerald-500/20 hover:bg-emerald-500/30 rounded-full text-sm transition-colors"
-225 |                 >
-226 |                   <span>{EMOJI_MAP[code] || code}</span>
-227 |                   <span className="text-xs text-emerald-100">{data.count}</span>
-228 |                 </button>
-229 |               ))}
-230 |               <EmojiPicker
-231 |                 onEmojiSelect={(code) => handleReaction(msg._id, code)}
-232 |                 trigger={
-233 |                   <button className="p-1.5 hover:bg-emerald-500/20 rounded-full transition-colors inline-flex">
-234 |                     <Smile className="h-4 w-4 text-emerald-100" />
-235 |                   </button>
-236 |                 }
-237 |               />
-238 |             </div>
-239 |           )}
-240 |         </div>
-241 |       </div>
-242 |     );
-243 |   };
-244 | 
-245 |   // Show empty state if only one member (admin) and not a DM
-246 |   if (members && members.length <= 1 && currentChannel?.type !== "dm") {
-247 |     return (
-248 |       <>
-249 |         <InviteModal 
-250 |           open={inviteModalOpen}
-251 |           onOpenChange={setInviteModalOpen}
-252 |           name={workspace?.name || ""}
-253 |           joinCode={workspace?.joinCode || ""}
-254 |         />
-255 |         <div className="flex flex-col h-full">
-256 |           <ChannelHeader channel={currentChannel} />
-257 |           <div className="flex flex-col items-center justify-center flex-1 bg-emerald-50/30">
-258 |             <div className="flex flex-col items-center max-w-md text-center p-8 bg-white rounded-lg shadow-sm">
-259 |               <div className="p-3 bg-emerald-100 rounded-full mb-4">
-260 |                 <Users className="h-8 w-8 text-emerald-600" />
-261 |               </div>
-262 |               <h2 className="text-2xl font-semibold text-emerald-900 mb-2">
-263 |                 Invite Team Members
-264 |               </h2>
-265 |               <p className="text-emerald-600 mb-6">
-266 |                 This channel is looking a bit empty. Invite your teammates to join the conversation!
-267 |               </p>
-268 |               <Button
-269 |                 onClick={() => setInviteModalOpen(true)}
-270 |                 className="bg-emerald-600 hover:bg-emerald-700 text-white"
-271 |               >
-272 |                 <UserPlus className="mr-2 h-4 w-4" />
-273 |                 Invite People
-274 |               </Button>
-275 |             </div>
-276 |           </div>
-277 |         </div>
-278 |       </>
-279 |     );
-280 |   }
-281 | 
-282 |   if (messages === undefined || !currentChannel) {
-283 |     return <div className="p-4 text-emerald-600">Loading...</div>;
-284 |   }
-285 | 
-286 |   // Sort messages by creation time, newest first
-287 |   const sortedMessages = [...messages].sort((a, b) => a.createdAt - b.createdAt);
-288 | 
-289 |   return (
-290 |     <div className="flex h-full">
-291 |       {/* Left section: main channel messages */}
-292 |       <div className="flex flex-col flex-1 relative">
-293 |         <ChannelHeader channel={currentChannel} />
-294 |         {/* Messages list */}
-295 |         <div className="flex-1 overflow-y-auto p-4 space-y-3 bg-emerald-50/30">
-296 |           {sortedMessages?.length === 0 ? (
-297 |             <div className="text-sm text-emerald-600 italic">
-298 |               No messages yet. Start the conversation!
-299 |             </div>
-300 |           ) : (
-301 |             sortedMessages?.map((msg) => (
-302 |               <Message key={msg._id} msg={msg} />
-303 |             ))
-304 |           )}
-305 |           {/* Invisible div for scrolling to bottom */}
-306 |           <div ref={messagesEndRef} />
-307 |         </div>
-308 | 
-309 |         {/* Fixed input at bottom */}
-310 |         <div className="p-2 border-t bg-white">
-311 |           <div className="flex gap-2">
-312 |             <Input
-313 |               placeholder="Type a message..."
-314 |               value={text}
-315 |               onChange={(e) => setText(e.target.value)}
-316 |               onKeyDown={(e) => {
-317 |                 if (e.key === "Enter" && !e.shiftKey) {
-318 |                   e.preventDefault();
-319 |                   handleSend();
-320 |                 }
-321 |               }}
-322 |             />
-323 |             <Button 
-324 |               onClick={handleSend}
-325 |               className="bg-emerald-600 hover:bg-emerald-700"
-326 |             >
-327 |               Send
-328 |             </Button>
-329 |           </div>
-330 |         </div>
-331 |       </div>
-332 | 
-333 |       {/* Right section: Thread panel (conditionally shown) */}
-334 |       {selectedThread && (
-335 |         <div className="w-[320px] border-l bg-white">
-336 |           <ThreadPanel parentMessageId={selectedThread} onClose={() => setSelectedThread(null)} />
-337 |         </div>
-338 |       )}
-339 |     </div>
-340 |   );
-341 | }
+118 |   const handleSend = async () => {
+119 |     if (!text) return;
+120 |     try {
+121 |       await sendMessage({ 
+122 |         channelId: channelId as Id<"channels">, 
+123 |         text,
+124 |       });
+125 |       setText("");
+126 |     } catch (error) {
+127 |       console.error("Error sending message:", error);
+128 |     }
+129 |   };
+130 | 
+131 |   const Message = ({ msg }: { msg: any }) => {
+132 |     const replyCount = useQuery(api.messages.getReplyCount, { messageId: msg._id }) ?? 0;
+133 |     const params = useParams();
+134 |     const workspaceId = params.workspaceId as Id<"workspaces">;
+135 |     const currentChannel = channels?.find(c => c._id === channelId);
+136 |     const isDM = currentChannel?.type === "dm";
+137 |     const { data: currentUser } = useCurrentUser();
+138 |     const isSentByMe = msg.userId === currentUser?._id;
+139 |     
+140 |     if (!isDM) {
+141 |       return (
+142 |         <div className="border border-emerald-100 p-3 rounded-lg hover:bg-emerald-50/50 transition bg-white shadow-sm">
+143 |           <div className="text-sm text-emerald-800 flex justify-between items-center mb-2">
+144 |             <div className="flex items-center gap-2">
+145 |               <UserActionMenu 
+146 |                 userId={msg.userId as Id<"users">}
+147 |                 userName={msg.userName}
+148 |               >
+149 |                 <strong className="font-medium text-emerald-900">{msg.userName}</strong>
+150 |               </UserActionMenu>
+151 |               {msg.isAI && (
+152 |                 <span className="text-xs text-emerald-400 flex items-center gap-1">
+153 |                   <span className="inline-block w-3 h-3">🤖</span>
+154 |                   <span className="opacity-75">AI</span>
+155 |                 </span>
+156 |               )}
+157 |               <MessagePresence 
+158 |                 workspaceId={workspaceId} 
+159 |                 userId={msg.userId} 
+160 |                 className="h-2 w-2 shrink-0" 
+161 |               />
+162 |               <span className="text-xs text-emerald-500">
+163 |                 {new Date(msg.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+164 |               </span>
+165 |             </div>
+166 |             <div className="flex items-center gap-2">
+167 |               {replyCount > 0 && (
+168 |                 <button
+169 |                   className="text-xs text-emerald-600 hover:text-emerald-700 hover:underline flex items-center gap-1"
+170 |                   onClick={() => setSelectedThread(msg._id)}
+171 |                 >
+172 |                   <MessageSquare className="h-3 w-3" />
+173 |                   {replyCount} {replyCount === 1 ? 'reply' : 'replies'}
+174 |                 </button>
+175 |               )}
+176 |               <Button
+177 |                 variant="ghost"
+178 |                 size="sm"
+179 |                 className="py-1 h-7 text-xs text-emerald-600 hover:text-emerald-700 hover:bg-emerald-50"
+180 |                 onClick={() => setSelectedThread(msg._id)}
+181 |               >
+182 |                 Reply
+183 |               </Button>
+184 |             </div>
+185 |           </div>
+186 |           <div className="text-sm text-emerald-900 leading-relaxed">{msg.text}</div>
+187 |           <div className="mt-3 flex flex-wrap gap-1">
+188 |             {Object.entries(msg.reactions || {}).map(([code, data]: [string, any]) => (
+189 |               <button
+190 |                 key={code}
+191 |                 onClick={() => handleReaction(msg._id, code)}
+192 |                 className="inline-flex items-center gap-1 px-2 py-0.5 bg-emerald-50 hover:bg-emerald-100 border border-emerald-100 rounded-full text-sm transition-colors"
+193 |               >
+194 |                 <span>{EMOJI_MAP[code] || code}</span>
+195 |                 <span className="text-xs text-emerald-600">{data.count}</span>
+196 |               </button>
+197 |             ))}
+198 |             <EmojiPicker
+199 |               onEmojiSelect={(code) => handleReaction(msg._id, code)}
+200 |               trigger={
+201 |                 <button className="p-1.5 hover:bg-emerald-50 rounded-full transition-colors">
+202 |                   <Smile className="h-4 w-4 text-emerald-400 hover:text-emerald-500" />
+203 |                 </button>
+204 |               }
+205 |             />
+206 |           </div>
+207 |         </div>
+208 |       );
+209 |     }
+210 | 
+211 |     // DM Message Style
+212 |     return (
+213 |       <div className={cn(
+214 |         "flex flex-col max-w-[60%] space-y-1 mb-4",
+215 |         isSentByMe ? "ml-auto" : ""
+216 |       )}>
+217 |         <div className={cn(
+218 |           "flex items-center gap-2",
+219 |           isSentByMe ? "justify-end mr-2" : "ml-2"
+220 |         )}>
+221 |           <span className="text-xs text-emerald-500">
+222 |             {new Date(msg.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+223 |           </span>
+224 |           {msg.isAI && (
+225 |             <span className="text-xs text-emerald-400 flex items-center gap-1">
+226 |               <span className="inline-block w-3 h-3">🤖</span>
+227 |               <span className="opacity-75">AI</span>
+228 |             </span>
+229 |           )}
+230 |         </div>
+231 |         <div className={cn(
+232 |           "px-3.5 py-2 rounded-[18px] shadow-sm",
+233 |           isSentByMe 
+234 |             ? "bg-emerald-600 text-white rounded-br-none" 
+235 |             : "bg-gray-100 text-emerald-900 rounded-bl-none"
+236 |         )}>
+237 |           <div className="text-sm leading-relaxed break-words">
+238 |             {msg.text}
+239 |           </div>
+240 |           {(replyCount > 0 || msg.reactions) && (
+241 |             <div className={cn(
+242 |               "mt-2 pt-2",
+243 |               isSentByMe ? "border-t border-emerald-500/30" : "border-t border-gray-200"
+244 |             )}>
+245 |               {replyCount > 0 && (
+246 |                 <button
+247 |                   className={cn(
+248 |                     "text-xs flex items-center gap-1 mb-2",
+249 |                     isSentByMe ? "text-emerald-100 hover:text-white" : "text-emerald-600 hover:text-emerald-700"
+250 |                   )}
+251 |                   onClick={() => setSelectedThread(msg._id)}
+252 |                 >
+253 |                   <MessageSquare className="h-3 w-3" />
+254 |                   {replyCount} {replyCount === 1 ? 'reply' : 'replies'}
+255 |                 </button>
+256 |               )}
+257 |               {Object.entries(msg.reactions || {}).map(([code, data]: [string, any]) => (
+258 |                 <button
+259 |                   key={code}
+260 |                   onClick={() => handleReaction(msg._id, code)}
+261 |                   className={cn(
+262 |                     "inline-flex items-center gap-1 mr-1 px-2 py-0.5 rounded-full text-sm transition-colors",
+263 |                     isSentByMe 
+264 |                       ? "bg-emerald-500/20 hover:bg-emerald-500/30" 
+265 |                       : "bg-gray-200 hover:bg-gray-300"
+266 |                   )}
+267 |                 >
+268 |                   <span>{EMOJI_MAP[code] || code}</span>
+269 |                   <span className={cn(
+270 |                     "text-xs",
+271 |                     isSentByMe ? "text-emerald-100" : "text-emerald-600"
+272 |                   )}>{data.count}</span>
+273 |                 </button>
+274 |               ))}
+275 |               <EmojiPicker
+276 |                 onEmojiSelect={(code) => handleReaction(msg._id, code)}
+277 |                 trigger={
+278 |                   <button className={cn(
+279 |                     "p-1.5 rounded-full transition-colors inline-flex",
+280 |                     isSentByMe 
+281 |                       ? "hover:bg-emerald-500/20 text-emerald-100" 
+282 |                       : "hover:bg-gray-200 text-emerald-400"
+283 |                   )}>
+284 |                     <Smile className="h-4 w-4" />
+285 |                   </button>
+286 |                 }
+287 |               />
+288 |             </div>
+289 |           )}
+290 |         </div>
+291 |       </div>
+292 |     );
+293 |   };
+294 | 
+295 |   // Show empty state if only one member (admin) and not a DM
+296 |   if (members && members.length <= 1 && currentChannel?.type !== "dm") {
+297 |     return (
+298 |       <>
+299 |         <InviteModal 
+300 |           open={inviteModalOpen}
+301 |           onOpenChange={setInviteModalOpen}
+302 |           name={workspace?.name || ""}
+303 |           joinCode={workspace?.joinCode || ""}
+304 |         />
+305 |         <div className="flex flex-col h-full">
+306 |           <ChannelHeader channel={currentChannel} />
+307 |           <div className="flex flex-col items-center justify-center flex-1 bg-emerald-50/30">
+308 |             <div className="flex flex-col items-center max-w-md text-center p-8 bg-white rounded-lg shadow-sm">
+309 |               <div className="p-3 bg-emerald-100 rounded-full mb-4">
+310 |                 <Users className="h-8 w-8 text-emerald-600" />
+311 |               </div>
+312 |               <h2 className="text-2xl font-semibold text-emerald-900 mb-2">
+313 |                 Invite Team Members
+314 |               </h2>
+315 |               <p className="text-emerald-600 mb-6">
+316 |                 This channel is looking a bit empty. Invite your teammates to join the conversation!
+317 |               </p>
+318 |               <Button
+319 |                 onClick={() => setInviteModalOpen(true)}
+320 |                 className="bg-emerald-600 hover:bg-emerald-700 text-white"
+321 |               >
+322 |                 <UserPlus className="mr-2 h-4 w-4" />
+323 |                 Invite People
+324 |               </Button>
+325 |             </div>
+326 |           </div>
+327 |         </div>
+328 |       </>
+329 |     );
+330 |   }
+331 | 
+332 |   if (messages === undefined || !currentChannel) {
+333 |     return <div className="p-4 text-emerald-600">Loading...</div>;
+334 |   }
+335 | 
+336 |   // Sort messages by creation time, newest first
+337 |   const sortedMessages = [...messages].sort((a, b) => a.createdAt - b.createdAt);
+338 | 
+339 |   return (
+340 |     <div className="flex h-full">
+341 |       {/* Left section: main channel messages */}
+342 |       <div className="flex flex-col flex-1 relative">
+343 |         <ChannelHeader channel={currentChannel} />
+344 |         {/* Messages list */}
+345 |         <div className="flex-1 overflow-y-auto p-4 space-y-3 bg-emerald-50/30">
+346 |           {sortedMessages?.length === 0 ? (
+347 |             <div className="text-sm text-emerald-600 italic">
+348 |               No messages yet. Start the conversation!
+349 |             </div>
+350 |           ) : (
+351 |             sortedMessages?.map((msg) => (
+352 |               <Message key={msg._id} msg={msg} />
+353 |             ))
+354 |           )}
+355 |           {/* Invisible div for scrolling to bottom */}
+356 |           <div ref={messagesEndRef} />
+357 |         </div>
+358 | 
+359 |         {/* Fixed input at bottom */}
+360 |         <div className="p-2 border-t bg-white">
+361 |           <div className="flex gap-2">
+362 |             <SummaryDropdown 
+363 |               channelId={channelId as string} 
+364 |               isThread={!!selectedThread}
+365 |               isDM={currentChannel?.type === "dm"}
+366 |               threadId={selectedThread?.toString()}
+367 |             />
+368 |             <div className="relative flex-1">
+369 |               <Input
+370 |                 placeholder="Type a message..."
+371 |                 value={text}
+372 |                 onChange={(e) => setText(e.target.value)}
+373 |                 onKeyDown={(e) => {
+374 |                   if (e.key === "Enter" && !e.shiftKey) {
+375 |                     e.preventDefault();
+376 |                     handleSend();
+377 |                   }
+378 |                 }}
+379 |                 className="rounded-full bg-gray-100 border-0 focus-visible:ring-0 focus-visible:ring-offset-0 pl-4 pr-4"
+380 |               />
+381 |             </div>
+382 |             <Button 
+383 |               onClick={handleSend}
+384 |               className="bg-emerald-600 hover:bg-emerald-700 shrink-0"
+385 |             >
+386 |               Send
+387 |             </Button>
+388 |           </div>
+389 |         </div>
+390 |       </div>
+391 | 
+392 |       {/* Right section: Thread panel (conditionally shown) */}
+393 |       {selectedThread && (
+394 |         <div className="w-[320px] border-l bg-white">
+395 |           <ThreadPanel parentMessageId={selectedThread} onClose={() => setSelectedThread(null)} />
+396 |         </div>
+397 |       )}
+398 |     </div>
+399 |   );
+400 | }
 ```
 
 src/app/workspace/[workspaceId]/channel/[channelId]/thread-panel.tsx
 ```
 1 | "use client";
 2 | 
-3 | import { useState } from "react";
+3 | import { useState, useRef, useEffect } from "react";
 4 | import { api } from "../../../../../../convex/_generated/api";
 5 | import { useQuery, useMutation } from "convex/react";
 6 | import { Input } from "@/components/ui/input";
 7 | import { Button } from "@/components/ui/button";
 8 | import { Id } from "../../../../../../convex/_generated/dataModel";
 9 | import { EmojiPicker } from "@/components/emoji-picker";
-10 | import { Smile } from "lucide-react";
+10 | import { Smile, Plus } from "lucide-react";
 11 | import { MessagePresence } from "@/app/features/presence/components/message-presence";
 12 | import { useParams } from "next/navigation";
-13 | 
-14 | const EMOJI_MAP: Record<string, string> = {
-15 |   thumbs_up: "👍",
-16 |   heart: "❤️",
-17 |   smile: "😊",
-18 |   party: "🎉",
-19 |   fire: "🔥",
-20 |   eyes: "👀",
-21 |   "100": "💯",
-22 |   sparkles: "✨",
-23 |   raised_hands: "🙌",
-24 |   clap: "👏",
-25 | };
-26 | 
-27 | export function ThreadPanel({
-28 |   parentMessageId,
-29 |   onClose,
-30 | }: {
-31 |   parentMessageId: Id<"messages">;
-32 |   onClose: () => void;
-33 | }) {
-34 |   const params = useParams();
-35 |   const workspaceId = params.workspaceId as Id<"workspaces">;
-36 |   const [text, setText] = useState("");
-37 |   const parentMessage = useQuery(api.messages.get, {
-38 |     messageId: parentMessageId,
-39 |   });
-40 |   const threadMessages = useQuery(api.messages.listThread, {
-41 |     parentMessageId,
+13 | import { SummaryDropdown } from "@/components/ui/summary-dropdown";
+14 | 
+15 | const EMOJI_MAP: Record<string, string> = {
+16 |   thumbs_up: "👍",
+17 |   heart: "❤️",
+18 |   smile: "😊",
+19 |   party: "🎉",
+20 |   fire: "🔥",
+21 |   eyes: "👀",
+22 |   "100": "💯",
+23 |   sparkles: "✨",
+24 |   raised_hands: "🙌",
+25 |   clap: "👏",
+26 | };
+27 | 
+28 | export function ThreadPanel({
+29 |   parentMessageId,
+30 |   onClose,
+31 | }: {
+32 |   parentMessageId: Id<"messages">;
+33 |   onClose: () => void;
+34 | }) {
+35 |   const params = useParams();
+36 |   const workspaceId = params.workspaceId as Id<"workspaces">;
+37 |   const [text, setText] = useState("");
+38 |   const [isFirstLoad, setIsFirstLoad] = useState(true);
+39 |   const messagesEndRef = useRef<HTMLDivElement>(null);
+40 |   const parentMessage = useQuery(api.messages.get, {
+41 |     messageId: parentMessageId,
 42 |   });
-43 | 
-44 |   const sendMessage = useMutation(api.messages.send);
-45 |   const toggleReaction = useMutation(api.messages.toggleReaction);
+43 |   const threadMessages = useQuery(api.messages.listThread, {
+44 |     parentMessageId,
+45 |   });
 46 | 
-47 |   const handleReaction = async (messageId: Id<"messages">, emoji: string) => {
-48 |     try {
-49 |       await toggleReaction({ messageId, emoji });
-50 |     } catch (error) {
-51 |       console.error("Error toggling reaction:", error);
+47 |   // Initial scroll to bottom without animation
+48 |   useEffect(() => {
+49 |     if (threadMessages && isFirstLoad) {
+50 |       messagesEndRef.current?.scrollIntoView();
+51 |       setIsFirstLoad(false);
 52 |     }
-53 |   };
+53 |   }, [threadMessages, isFirstLoad]);
 54 | 
-55 |   const handleReply = async () => {
-56 |     if (!text || !parentMessage) return;
-57 |     try {
-58 |       await sendMessage({
-59 |         channelId: parentMessage.channelId,
-60 |         text,
-61 |         parentMessageId,
-62 |       });
-63 |       setText("");
-64 |     } catch (error) {
-65 |       console.error("Error replying to thread:", error);
-66 |     }
-67 |   };
-68 | 
-69 |   const MessageWithReactions = ({ message }: { message: any }) => (
-70 |     <div className="border border-emerald-100 p-3 rounded-lg hover:bg-emerald-50/50 transition bg-white shadow-sm">
-71 |       <div className="flex items-center gap-2 mb-2">
-72 |         <div className="flex items-center gap-2">
-73 |           <strong className="font-medium text-emerald-900">{message.userName}</strong>
-74 |           <MessagePresence 
-75 |             workspaceId={workspaceId} 
-76 |             userId={message.userId} 
-77 |             className="h-2 w-2 shrink-0" 
-78 |           />
-79 |           <span className="text-xs text-emerald-500">
-80 |             {new Date(message.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
-81 |           </span>
-82 |         </div>
-83 |       </div>
-84 |       <div className="text-sm text-emerald-900 leading-relaxed">{message.text}</div>
-85 |       
-86 |       {/* Reactions */}
-87 |       <div className="mt-3 flex flex-wrap gap-1">
-88 |         {Object.entries(message.reactions || {}).map(([code, data]: [string, any]) => (
-89 |           <button
-90 |             key={code}
-91 |             onClick={() => handleReaction(message._id, code)}
-92 |             className="inline-flex items-center gap-1 px-2 py-0.5 bg-emerald-50 hover:bg-emerald-100 border border-emerald-100 rounded-full text-sm transition-colors"
-93 |           >
-94 |             <span>{EMOJI_MAP[code] || code}</span>
-95 |             <span className="text-xs text-emerald-600">{data.count}</span>
-96 |           </button>
-97 |         ))}
-98 |         
-99 |         {/* Add reaction button */}
-100 |         <EmojiPicker
-101 |           onEmojiSelect={(code) => handleReaction(message._id, code)}
-102 |           trigger={
-103 |             <button className="p-1.5 hover:bg-emerald-50 rounded-full transition-colors">
-104 |               <Smile className="h-4 w-4 text-emerald-400 hover:text-emerald-500" />
-105 |             </button>
-106 |           }
-107 |         />
-108 |       </div>
-109 |     </div>
-110 |   );
-111 | 
-112 |   if (!threadMessages || !parentMessage) {
-113 |     return (
-114 |       <div className="p-4 flex flex-col h-full">
-115 |         <div className="flex justify-between">
-116 |           <h2 className="font-bold text-lg text-emerald-900">Thread</h2>
-117 |           <Button variant="outline" size="sm" onClick={onClose}>
-118 |             Close
-119 |           </Button>
-120 |         </div>
-121 |         <div className="mt-4 text-emerald-700">Loading thread...</div>
-122 |       </div>
-123 |     );
-124 |   }
-125 | 
-126 |   return (
-127 |     <div className="p-4 flex flex-col h-full">
-128 |       <div className="flex justify-between items-center">
-129 |         <h2 className="font-bold text-lg text-emerald-900">Thread</h2>
-130 |         <Button variant="outline" size="sm" onClick={onClose}>
-131 |           Close
-132 |         </Button>
-133 |       </div>
-134 | 
-135 |       {/* Parent message */}
-136 |       <div className="mt-4 border-b border-emerald-100 pb-4">
-137 |         <MessageWithReactions message={parentMessage} />
-138 |       </div>
-139 | 
-140 |       <div className="flex-1 overflow-y-auto mt-4 space-y-2 pr-2">
-141 |         {threadMessages.length === 0 ? (
-142 |           <p className="text-sm text-emerald-600 italic">
-143 |             No replies yet. Be the first to reply.
-144 |           </p>
-145 |         ) : (
-146 |           threadMessages.map((msg) => (
-147 |             <MessageWithReactions key={msg._id} message={msg} />
-148 |           ))
-149 |         )}
-150 |       </div>
-151 | 
-152 |       <div className="mt-2">
-153 |         <div className="flex gap-2">
-154 |           <Input
-155 |             placeholder="Reply in thread..."
-156 |             value={text}
-157 |             onChange={(e) => setText(e.target.value)}
-158 |             onKeyDown={(e) => {
-159 |               if (e.key === "Enter" && !e.shiftKey) {
-160 |                 e.preventDefault();
-161 |                 handleReply();
-162 |               }
-163 |             }}
-164 |           />
-165 |           <Button 
-166 |             onClick={handleReply}
-167 |             className="bg-emerald-600 hover:bg-emerald-700"
-168 |           >
-169 |             Reply
-170 |           </Button>
-171 |         </div>
-172 |       </div>
-173 |     </div>
-174 |   );
-175 | } 
+55 |   // Smooth scroll to bottom for new messages
+56 |   useEffect(() => {
+57 |     if (!isFirstLoad && threadMessages) {
+58 |       messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
+59 |     }
+60 |   }, [threadMessages, isFirstLoad]);
+61 | 
+62 |   const sendMessage = useMutation(api.messages.send);
+63 |   const toggleReaction = useMutation(api.messages.toggleReaction);
+64 | 
+65 |   const handleReaction = async (messageId: Id<"messages">, emoji: string) => {
+66 |     try {
+67 |       await toggleReaction({ messageId, emoji });
+68 |     } catch (error) {
+69 |       console.error("Error toggling reaction:", error);
+70 |     }
+71 |   };
+72 | 
+73 |   const handleReply = async () => {
+74 |     if (!text || !parentMessage) return;
+75 |     try {
+76 |       await sendMessage({
+77 |         channelId: parentMessage.channelId,
+78 |         text,
+79 |         parentMessageId,
+80 |       });
+81 |       setText("");
+82 |     } catch (error) {
+83 |       console.error("Error replying to thread:", error);
+84 |     }
+85 |   };
+86 | 
+87 |   const MessageWithReactions = ({ message }: { message: any }) => (
+88 |     <div className="border border-emerald-100 p-3 rounded-lg hover:bg-emerald-50/50 transition bg-white shadow-sm">
+89 |       <div className="flex items-center gap-2 mb-2">
+90 |         <div className="flex items-center gap-2">
+91 |           <strong className="font-medium text-emerald-900">{message.userName}</strong>
+92 |           {message.isAI && (
+93 |             <span className="text-xs text-emerald-400 flex items-center gap-1">
+94 |               <span className="inline-block w-3 h-3">🤖</span>
+95 |               <span className="opacity-75">AI</span>
+96 |             </span>
+97 |           )}
+98 |           <MessagePresence 
+99 |             workspaceId={workspaceId} 
+100 |             userId={message.userId} 
+101 |             className="h-2 w-2 shrink-0" 
+102 |           />
+103 |           <span className="text-xs text-emerald-500">
+104 |             {new Date(message.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+105 |           </span>
+106 |         </div>
+107 |       </div>
+108 |       <div className="text-sm text-emerald-900 leading-relaxed">{message.text}</div>
+109 |       
+110 |       {/* Reactions */}
+111 |       <div className="mt-3 flex flex-wrap gap-1">
+112 |         {Object.entries(message.reactions || {}).map(([code, data]: [string, any]) => (
+113 |           <button
+114 |             key={code}
+115 |             onClick={() => handleReaction(message._id, code)}
+116 |             className="inline-flex items-center gap-1 px-2 py-0.5 bg-emerald-50 hover:bg-emerald-100 border border-emerald-100 rounded-full text-sm transition-colors"
+117 |           >
+118 |             <span>{EMOJI_MAP[code] || code}</span>
+119 |             <span className="text-xs text-emerald-600">{data.count}</span>
+120 |           </button>
+121 |         ))}
+122 |         
+123 |         {/* Add reaction button */}
+124 |         <EmojiPicker
+125 |           onEmojiSelect={(code) => handleReaction(message._id, code)}
+126 |           trigger={
+127 |             <button className="p-1.5 hover:bg-emerald-50 rounded-full transition-colors">
+128 |               <Smile className="h-4 w-4 text-emerald-400 hover:text-emerald-500" />
+129 |             </button>
+130 |           }
+131 |         />
+132 |       </div>
+133 |     </div>
+134 |   );
+135 | 
+136 |   if (!threadMessages || !parentMessage) {
+137 |     return (
+138 |       <div className="p-4 flex flex-col h-full">
+139 |         <div className="flex justify-between">
+140 |           <h2 className="font-bold text-lg text-emerald-900">Thread</h2>
+141 |           <Button variant="outline" size="sm" onClick={onClose}>
+142 |             Close
+143 |           </Button>
+144 |         </div>
+145 |         <div className="mt-4 text-emerald-700">Loading thread...</div>
+146 |       </div>
+147 |     );
+148 |   }
+149 | 
+150 |   return (
+151 |     <div className="flex flex-col h-full">
+152 |       {/* Header */}
+153 |       <div className="p-4 flex justify-between items-center shrink-0 border-b border-emerald-100">
+154 |         <h2 className="font-bold text-lg text-emerald-900">Thread</h2>
+155 |         <Button variant="outline" size="sm" onClick={onClose}>
+156 |           Close
+157 |         </Button>
+158 |       </div>
+159 | 
+160 |       {/* All messages in one scrollable section */}
+161 |       <div className="flex-1 min-h-0 overflow-y-auto">
+162 |         <div className="p-4 space-y-4">
+163 |           {/* Parent message */}
+164 |           <MessageWithReactions message={parentMessage} />
+165 |           
+166 |           {/* Thread replies */}
+167 |           {threadMessages.length > 0 && threadMessages.map((msg) => (
+168 |             <MessageWithReactions key={msg._id} message={msg} />
+169 |           ))}
+170 |           
+171 |           {/* Invisible div for scrolling to bottom */}
+172 |           <div ref={messagesEndRef} />
+173 |         </div>
+174 |       </div>
+175 | 
+176 |       {/* Reply input - fixed at bottom */}
+177 |       <div className="px-4 py-6 border-t border-emerald-100 bg-white shrink-0">
+178 |         <div className="flex items-center gap-2">
+179 |           <SummaryDropdown 
+180 |             channelId={parentMessage.channelId} 
+181 |             isThread={true}
+182 |             threadId={parentMessageId}
+183 |           />
+184 |           <div className="relative flex-1">
+185 |             <Input
+186 |               placeholder="Reply to thread"
+187 |               value={text}
+188 |               onChange={(e) => setText(e.target.value)}
+189 |               onKeyDown={(e) => {
+190 |                 if (e.key === "Enter" && !e.shiftKey) {
+191 |                   e.preventDefault();
+192 |                   handleReply();
+193 |                 }
+194 |               }}
+195 |               className="rounded-full bg-gray-100 border-0 focus-visible:ring-0 focus-visible:ring-offset-0 pl-4 pr-4"
+196 |             />
+197 |           </div>
+198 |           <Button 
+199 |             onClick={handleReply}
+200 |             className="bg-emerald-600 hover:bg-emerald-700 shrink-0"
+201 |           >
+202 |             Reply
+203 |           </Button>
+204 |         </div>
+205 |       </div>
+206 |     </div>
+207 |   );
+208 | } 
 ```
 
 src/app/workspace/[workspaceId]/channel/page.tsx
@@ -5432,38 +5903,41 @@ src/app/workspace/[workspaceId]/sidebar-item.tsx
 9 |   href?: string;
 10 |   variant?: "default" | "active";
 11 |   iconClassName?: string;
-12 | }
-13 | 
-14 | export const SidebarItem = ({
-15 |   icon: Icon,
-16 |   label,
-17 |   id,
-18 |   href,
-19 |   variant = "default",
-20 |   iconClassName,
-21 | }: SidebarItemProps) => {
-22 |   const router = useRouter();
-23 | 
-24 |   const onClick = () => {
-25 |     if (href) {
-26 |       router.push(href);
-27 |     }
-28 |   };
-29 | 
-30 |   return (
-31 |     <button
-32 |       onClick={onClick}
-33 |       className={cn(
-34 |         "flex items-center gap-x-2 px-2 py-1 w-full transition rounded-md",
-35 |         variant === "default" && "text-white hover:bg-white/10",
-36 |         variant === "active" && "bg-white text-emerald-700"
-37 |       )}
-38 |     >
-39 |       <Icon className={cn("h-4 w-4", iconClassName)} />
-40 |       <span className="text-sm font-medium truncate">{label}</span>
-41 |     </button>
-42 |   );
-43 | };
+12 |   className?: string;
+13 | }
+14 | 
+15 | export const SidebarItem = ({
+16 |   icon: Icon,
+17 |   label,
+18 |   id,
+19 |   href,
+20 |   variant = "default",
+21 |   iconClassName,
+22 |   className,
+23 | }: SidebarItemProps) => {
+24 |   const router = useRouter();
+25 | 
+26 |   const onClick = () => {
+27 |     if (href) {
+28 |       router.push(href);
+29 |     }
+30 |   };
+31 | 
+32 |   return (
+33 |     <button
+34 |       onClick={onClick}
+35 |       className={cn(
+36 |         "flex items-center gap-x-2 px-2 py-1 w-full transition rounded-md",
+37 |         variant === "default" && "text-white hover:bg-white/10",
+38 |         variant === "active" && "bg-white text-emerald-700",
+39 |         className
+40 |       )}
+41 |     >
+42 |       <Icon className={cn("h-4 w-4", iconClassName)} />
+43 |       <span className="text-sm font-medium truncate">{label}</span>
+44 |     </button>
+45 |   );
+46 | };
 ```
 
 src/app/workspace/[workspaceId]/sidebar.tsx
@@ -5835,153 +6309,176 @@ src/app/workspace/[workspaceId]/workspace-sidebar.tsx
 19 | import { Button } from "@/components/ui/button";
 20 | import { useRouter, usePathname } from "next/navigation";
 21 | import { useCreateDM } from "@/app/features/channels/api/use-create-dm";
-22 | 
-23 | export const WorkspacesSidebar = () => {
-24 |   const router = useRouter();
-25 |   const pathname = usePathname();
-26 |   const workspaceId = useWorkspaceId();
-27 |   const [_open, setOpen] = useCreateChannelModal();
-28 |   const createDM = useCreateDM();
-29 |   const cleanupDMs = useMutation(api.channels.cleanupDuplicateDMs);
-30 | 
-31 |   // Run cleanup when workspace loads
-32 |   useEffect(() => {
-33 |     if (workspaceId) {
-34 |       cleanupDMs({ workspaceId: workspaceId as Id<"workspaces"> });
-35 |     }
-36 |   }, [workspaceId]);
-37 | 
-38 |   const { data: currentMember, isLoading: isCurrentMemberLoading } =
-39 |     useCurrentMember({ workspaceId });
-40 |   const { data: workspace, isLoading: isWorkspaceLoading } =
-41 |     useGetWorkspace({ id: workspaceId });
-42 |   const { data: channels, isLoading: isChannelsLoading } =
-43 |     useGetChannels({ workspaceId });
-44 |   const { data: members, isLoading: isMembersLoading } =
-45 |     useGetMembers({ workspaceId });
-46 | 
-47 |   const regularChannels = channels?.filter(c => c.type !== "dm") ?? [];
-48 |   const dmChannels = channels?.filter(c => c.type === "dm" && c.name?.trim()) ?? [];
-49 | 
-50 |   // Filter out current user from members list
-51 |   const otherMembers = members?.filter(m => m.user?._id !== currentMember?.user?._id) ?? [];
-52 | 
-53 |   const handleUserClick = async (userId: Id<"users">) => {
-54 |     if (!workspaceId) return;
-55 |     await createDM(workspaceId, userId);
-56 |   };
-57 | 
-58 |   // Get online presence
-59 |   const presence = useQuery(api.presence.list, {
-60 |     workspaceId: workspaceId as Id<"workspaces">,
-61 |   }) ?? [];
-62 | 
-63 |   // Filter members to only show online ones
-64 |   const onlineMembers = members?.filter(member => 
-65 |     member.user?._id !== currentMember?.user?._id && // Not current user
-66 |     presence.some((p: Doc<"userPresence">) => 
-67 |       p.userId === member.user?._id && 
-68 |       p.status === "online"
-69 |     )
-70 |   ) ?? [];
-71 | 
-72 |   if (isCurrentMemberLoading || isWorkspaceLoading) {
-73 |     return (
-74 |       <div className="flex items-center justify-center h-full">
-75 |         <Loader className="animate-spin text-white" />
-76 |       </div>
-77 |     );
-78 |   }
-79 | 
-80 |   if (!currentMember || !workspace) {
-81 |     return (
-82 |       <div className="flex items-center justify-center h-full">
-83 |         <div className="flex flex-col items-center gap-y-2">
-84 |           <AlertTriangle className="text-white h-8 w-8" />
-85 |           <span className="text-white text-sm">Workspace not found</span>
-86 |         </div>
-87 |       </div>
-88 |     );
-89 |   }
-90 | 
-91 |   return (
-92 |     <div className="flex flex-col h-full text-white">
-93 |       <div className="p-3">
-94 |         <WorkspaceHeader
-95 |           workspace={workspace}
-96 |           isAdmin={currentMember.role === "admin"}
-97 |         />
-98 | 
-99 |         <div className="space-y-8 mt-6">
-100 |           <div className="space-y-6">
-101 |             <div className="space-y-1">
-102 |               {/* TODO: Implement threads */}
-103 |               {/* <SidebarItem label="Threads" icon={MessageSquareText} id="threads" /> */}
-104 |               {/* TODO: Implement drafts */}
-105 |               {/* <SidebarItem label="Drafts & Sent" icon={SendHorizonal} id="drafts" /> */}
-106 |             </div>
-107 | 
-108 |             <WorkspaceSection
-109 |               label="Channels"
-110 |               hint={currentMember.role === "admin" ? "+" : ""}
-111 |               onNew={() => setOpen(true)}
-112 |             >
-113 |               {channels
-114 |                 ?.filter((c) => c.type !== "dm")
-115 |                 .map((channelItem) => (
-116 |                   <SidebarItem
-117 |                     label={channelItem.name}
-118 |                     icon={Hash}
-119 |                     key={channelItem._id}
-120 |                     id={channelItem._id}
-121 |                     href={`/workspace/${workspaceId}/channel/${channelItem._id}`}
-122 |                     variant={pathname === `/workspace/${workspaceId}/channel/${channelItem._id}` ? "active" : "default"}
-123 |                   />
-124 |                 ))}
-125 |             </WorkspaceSection>
-126 | 
-127 |             <WorkspaceSection 
-128 |               label="Direct Messages"
-129 |               hint="+"
-130 |             >
-131 |               {dmChannels.length === 0 ? (
-132 |                 <div className="px-2 py-1 text-sm text-zinc-400">
-133 |                   No direct messages yet
-134 |                 </div>
-135 |               ) : (
-136 |                 dmChannels.map((channel) => (
-137 |                   <SidebarItem
-138 |                     key={channel._id}
-139 |                     label={channel.name}
-140 |                     id={channel._id}
-141 |                     icon={Circle}
-142 |                     iconClassName="h-2 w-2 mt-1 text-emerald-500"
-143 |                     href={`/workspace/${workspaceId}/channel/${channel._id}`}
-144 |                     variant={pathname === `/workspace/${workspaceId}/channel/${channel._id}` ? "active" : "default"}
-145 |                   />
-146 |                 ))
-147 |               )}
-148 | 
-149 |               <div className="mt-2 pt-2 border-t border-white/10">
-150 |                 {otherMembers.map((member) => (
-151 |                   <button
-152 |                     key={member._id}
-153 |                     onClick={() => handleUserClick(member.user?._id as Id<"users">)}
-154 |                     className="flex items-center gap-x-2 px-2 py-1 w-full hover:bg-zinc-700/10 dark:hover:bg-zinc-700/50 transition rounded-md text-sm"
-155 |                   >
-156 |                     <span>{member.user?.name}</span>
-157 |                   </button>
-158 |                 ))}
-159 |               </div>
-160 |             </WorkspaceSection>
-161 |           </div>
+22 | import { MessagePresence } from "@/app/features/presence/components/message-presence";
+23 | import { UserActionMenu } from "@/components/ui/user-action-menu";
+24 | 
+25 | export const WorkspacesSidebar = () => {
+26 |   const router = useRouter();
+27 |   const pathname = usePathname();
+28 |   const workspaceId = useWorkspaceId();
+29 |   const [_open, setOpen] = useCreateChannelModal();
+30 |   const createDM = useCreateDM();
+31 |   const cleanupDMs = useMutation(api.channels.cleanupDuplicateDMs);
+32 | 
+33 |   // Run cleanup when workspace loads
+34 |   useEffect(() => {
+35 |     if (workspaceId) {
+36 |       cleanupDMs({ workspaceId: workspaceId as Id<"workspaces"> });
+37 |     }
+38 |   }, [workspaceId]);
+39 | 
+40 |   const { data: currentMember, isLoading: isCurrentMemberLoading } =
+41 |     useCurrentMember({ workspaceId });
+42 |   const { data: workspace, isLoading: isWorkspaceLoading } =
+43 |     useGetWorkspace({ id: workspaceId });
+44 |   const { data: channels, isLoading: isChannelsLoading } =
+45 |     useGetChannels({ workspaceId });
+46 |   const { data: members, isLoading: isMembersLoading } =
+47 |     useGetMembers({ workspaceId });
+48 | 
+49 |   const regularChannels = channels?.filter(c => c.type !== "dm") ?? [];
+50 |   const dmChannels = channels?.filter(c => c.type === "dm" && c.name?.trim()) ?? [];
+51 | 
+52 |   // Filter out current user from members list
+53 |   const otherMembers = members?.filter(m => m.user?._id !== currentMember?.user?._id) ?? [];
+54 | 
+55 |   const handleUserClick = async (userId: Id<"users">) => {
+56 |     if (!workspaceId) return;
+57 |     await createDM(workspaceId, userId);
+58 |   };
+59 | 
+60 |   // Get online presence
+61 |   const presence = useQuery(api.presence.list, {
+62 |     workspaceId: workspaceId as Id<"workspaces">,
+63 |   }) ?? [];
+64 | 
+65 |   // Filter members to only show online ones
+66 |   const onlineMembers = members?.filter(member => 
+67 |     member.user?._id !== currentMember?.user?._id && // Not current user
+68 |     presence.some((p: Doc<"userPresence">) => 
+69 |       p.userId === member.user?._id && 
+70 |       p.status === "online"
+71 |     )
+72 |   ) ?? [];
+73 | 
+74 |   if (isCurrentMemberLoading || isWorkspaceLoading) {
+75 |     return (
+76 |       <div className="flex items-center justify-center h-full">
+77 |         <Loader className="animate-spin text-white" />
+78 |       </div>
+79 |     );
+80 |   }
+81 | 
+82 |   if (!currentMember || !workspace) {
+83 |     return (
+84 |       <div className="flex items-center justify-center h-full">
+85 |         <div className="flex flex-col items-center gap-y-2">
+86 |           <AlertTriangle className="text-white h-8 w-8" />
+87 |           <span className="text-white text-sm">Workspace not found</span>
+88 |         </div>
+89 |       </div>
+90 |     );
+91 |   }
+92 | 
+93 |   return (
+94 |     <div className="flex flex-col h-full text-white">
+95 |       <div className="p-3">
+96 |         <WorkspaceHeader
+97 |           workspace={workspace}
+98 |           isAdmin={currentMember.role === "admin"}
+99 |         />
+100 | 
+101 |         <div className="space-y-8 mt-6">
+102 |           <div className="space-y-6">
+103 |             <div className="space-y-1">
+104 |               {/* TODO: Implement threads */}
+105 |               {/* <SidebarItem label="Threads" icon={MessageSquareText} id="threads" /> */}
+106 |               {/* TODO: Implement drafts */}
+107 |               {/* <SidebarItem label="Drafts & Sent" icon={SendHorizonal} id="drafts" /> */}
+108 |             </div>
+109 | 
+110 |             <WorkspaceSection
+111 |               label="Channels"
+112 |               hint={currentMember.role === "admin" ? "+" : ""}
+113 |               onNew={() => setOpen(true)}
+114 |             >
+115 |               {channels
+116 |                 ?.filter((c) => c.type !== "dm")
+117 |                 .map((channelItem) => (
+118 |                   <SidebarItem
+119 |                     label={channelItem.name}
+120 |                     icon={Hash}
+121 |                     key={channelItem._id}
+122 |                     id={channelItem._id}
+123 |                     href={`/workspace/${workspaceId}/channel/${channelItem._id}`}
+124 |                     variant={pathname === `/workspace/${workspaceId}/channel/${channelItem._id}` ? "active" : "default"}
+125 |                   />
+126 |                 ))}
+127 |             </WorkspaceSection>
+128 | 
+129 |             <WorkspaceSection 
+130 |               label="Direct Messages"
+131 |               hint="+"
+132 |             >
+133 |               {dmChannels.length === 0 ? (
+134 |                 <div className="px-2 py-1 text-sm text-zinc-400">
+135 |                   No direct messages yet
+136 |                 </div>
+137 |               ) : (
+138 |                 dmChannels.map((channel) => {
+139 |                   const otherUserId = channel.userIds?.find(id => id !== currentMember?.user?._id);
+140 |                   return (
+141 |                     <div key={channel._id} className="flex items-center relative">
+142 |                       {otherUserId && (
+143 |                         <MessagePresence 
+144 |                           workspaceId={workspaceId} 
+145 |                           userId={otherUserId as Id<"users">}
+146 |                           className="h-2 w-2 absolute left-2 mt-1"
+147 |                         />
+148 |                       )}
+149 |                       <SidebarItem
+150 |                         label={channel.name}
+151 |                         id={channel._id}
+152 |                         icon={Circle}
+153 |                         iconClassName="h-2 w-2 mt-1 text-emerald-500 opacity-0"
+154 |                         href={`/workspace/${workspaceId}/channel/${channel._id}`}
+155 |                         variant={pathname === `/workspace/${workspaceId}/channel/${channel._id}` ? "active" : "default"}
+156 |                         className="pl-7"
+157 |                       />
+158 |                     </div>
+159 |                   );
+160 |                 })
+161 |               )}
 162 | 
-163 |           <WorkspacePresence workspaceId={workspaceId} />
-164 |         </div>
-165 |       </div>
-166 |     </div>
-167 |   );
-168 | };
+163 |               <div className="mt-2 pt-2 border-t border-white/10">
+164 |                 {otherMembers.map((member) => (
+165 |                   <div
+166 |                     key={member._id}
+167 |                     className="flex items-center gap-x-2 px-2 py-1 w-full hover:bg-zinc-700/10 dark:hover:bg-zinc-700/50 transition rounded-md text-sm relative"
+168 |                   >
+169 |                     <MessagePresence 
+170 |                       workspaceId={workspaceId} 
+171 |                       userId={member.user?._id as Id<"users">}
+172 |                       className="h-2 w-2"
+173 |                     />
+174 |                     <UserActionMenu 
+175 |                       userId={member.user?._id as Id<"users">}
+176 |                       userName={member.user?.name || ""}
+177 |                     >
+178 |                       {member.user?.name}
+179 |                     </UserActionMenu>
+180 |                   </div>
+181 |                 ))}
+182 |               </div>
+183 |             </WorkspaceSection>
+184 |           </div>
+185 | 
+186 |           <WorkspacePresence workspaceId={workspaceId} />
+187 |         </div>
+188 |       </div>
+189 |     </div>
+190 |   );
+191 | };
 ```
 
 src/app/workspace/[workspaceId]/workspace-switcher.tsx
@@ -6518,6 +7015,65 @@ src/components/ui/card.tsx
 74 | CardFooter.displayName = "CardFooter"
 75 | 
 76 | export { Card, CardHeader, CardFooter, CardTitle, CardDescription, CardContent }
+```
+
+src/components/ui/chat-message-list.tsx
+```
+1 | import * as React from "react";
+2 | import { ArrowDown } from "lucide-react";
+3 | import { Button } from "@/components/ui/button";
+4 | import { useAutoScroll } from "@/hooks/use-auto-scroll";
+5 | 
+6 | interface ChatMessageListProps extends React.HTMLAttributes<HTMLDivElement> {
+7 |   smooth?: boolean;
+8 | }
+9 | 
+10 | const ChatMessageList = React.forwardRef<HTMLDivElement, ChatMessageListProps>(
+11 |   ({ className, children, smooth = false, ...props }, _ref) => {
+12 |     const {
+13 |       scrollRef,
+14 |       isAtBottom,
+15 |       autoScrollEnabled,
+16 |       scrollToBottom,
+17 |       disableAutoScroll,
+18 |     } = useAutoScroll({
+19 |       smooth,
+20 |       content: children,
+21 |     });
+22 | 
+23 |     return (
+24 |       <div className="relative w-full h-full">
+25 |         <div
+26 |           className={`flex flex-col w-full h-full p-4 overflow-y-auto ${className}`}
+27 |           ref={scrollRef}
+28 |           onWheel={disableAutoScroll}
+29 |           onTouchMove={disableAutoScroll}
+30 |           {...props}
+31 |         >
+32 |           <div className="flex flex-col gap-6">{children}</div>
+33 |         </div>
+34 | 
+35 |         {!isAtBottom && (
+36 |           <Button
+37 |             onClick={() => {
+38 |               scrollToBottom();
+39 |             }}
+40 |             size="icon"
+41 |             variant="outline"
+42 |             className="absolute bottom-2 left-1/2 transform -translate-x-1/2 inline-flex rounded-full shadow-md"
+43 |             aria-label="Scroll to bottom"
+44 |           >
+45 |             <ArrowDown className="h-4 w-4" />
+46 |           </Button>
+47 |         )}
+48 |       </div>
+49 |     );
+50 |   }
+51 | );
+52 | 
+53 | ChatMessageList.displayName = "ChatMessageList";
+54 | 
+55 | export { ChatMessageList };
 ```
 
 src/components/ui/dialog.tsx
@@ -7225,6 +7781,487 @@ src/components/ui/skeleton.tsx
 13 | }
 14 | 
 15 | export { Skeleton }
+```
+
+src/components/ui/summary-dialog.tsx
+```
+1 | "use client";
+2 | 
+3 | import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+4 | import { useCallback, useEffect, useState } from "react";
+5 | import { Loader2, Copy, Check } from "lucide-react";
+6 | import { cn } from "@/lib/utils";
+7 | import { api } from "../../../convex/_generated/api";
+8 | import { useAction } from "convex/react";
+9 | import { Id } from "../../../convex/_generated/dataModel";
+10 | import ReactMarkdown from 'react-markdown';
+11 | import { Button } from "@/components/ui/button";
+12 | 
+13 | interface SummaryDialogProps {
+14 |   open: boolean;
+15 |   onOpenChange: (open: boolean) => void;
+16 |   summaryType: "channel" | "dm" | "thread";
+17 |   channelId: string;
+18 |   threadId?: string;
+19 | }
+20 | 
+21 | const loadingSteps = {
+22 |   channel: ["Fetching recent messages...", "Analyzing channel activity...", "Generating summary..."],
+23 |   dm: ["Loading conversation history...", "Analyzing chat patterns...", "Generating summary..."],
+24 |   thread: ["Loading thread messages...", "Analyzing discussion context...", "Generating summary..."]
+25 | };
+26 | 
+27 | export const SummaryDialog = ({ 
+28 |   open, 
+29 |   onOpenChange, 
+30 |   summaryType,
+31 |   channelId,
+32 |   threadId 
+33 | }: SummaryDialogProps) => {
+34 |   const [currentStep, setCurrentStep] = useState(0);
+35 |   const [summary, setSummary] = useState<string | null>(null);
+36 |   const [copied, setCopied] = useState(false);
+37 |   const generateSummary = useAction(api.ai.generateSummary);
+38 | 
+39 |   const steps = loadingSteps[summaryType];
+40 | 
+41 |   const handleCopy = useCallback(() => {
+42 |     if (summary) {
+43 |       navigator.clipboard.writeText(summary);
+44 |       setCopied(true);
+45 |       setTimeout(() => setCopied(false), 2000);
+46 |     }
+47 |   }, [summary]);
+48 | 
+49 |   const handleGenerate = useCallback(async () => {
+50 |     if (!open) return;
+51 |     
+52 |     setSummary(null);
+53 |     setCurrentStep(0);
+54 | 
+55 |     try {
+56 |       // Simulate step progression
+57 |       const stepDuration = 1000;
+58 |       for (let i = 1; i < steps.length; i++) {
+59 |         await new Promise(resolve => setTimeout(resolve, stepDuration));
+60 |         setCurrentStep(i);
+61 |       }
+62 | 
+63 |       console.log('Calling generateSummary with:', {
+64 |         channelId,
+65 |         threadId,
+66 |         type: summaryType
+67 |       });
+68 | 
+69 |       const result = await generateSummary({
+70 |         channelId: channelId as Id<"channels">,
+71 |         threadId: threadId as Id<"messages"> | undefined,
+72 |         type: summaryType
+73 |       });
+74 | 
+75 |       if (!result) {
+76 |         throw new Error("No summary generated");
+77 |       }
+78 | 
+79 |       console.log('Summary result:', result);
+80 |       setSummary(result);
+81 |     } catch (error) {
+82 |       console.error("Failed to generate summary:", error);
+83 |       if (error instanceof Error) {
+84 |         setSummary(`Error: ${error.message}. Please try again.`);
+85 |       } else {
+86 |         setSummary("Failed to generate summary. Please try again.");
+87 |       }
+88 |     }
+89 |   }, [open, channelId, threadId, summaryType, generateSummary, steps]);
+90 | 
+91 |   useEffect(() => {
+92 |     if (open) {
+93 |       handleGenerate();
+94 |     } else {
+95 |       setSummary(null);
+96 |       setCurrentStep(0);
+97 |     }
+98 |   }, [open, handleGenerate]);
+99 | 
+100 |   return (
+101 |     <Dialog open={open} onOpenChange={onOpenChange}>
+102 |       <DialogContent className="sm:max-w-[600px]">
+103 |         <DialogHeader className="flex flex-row items-center justify-between">
+104 |           <DialogTitle>
+105 |             {summaryType === "channel" && "Channel Summary"}
+106 |             {summaryType === "dm" && "Conversation Summary"}
+107 |             {summaryType === "thread" && "Thread Summary"}
+108 |           </DialogTitle>
+109 |           {summary && (
+110 |             <Button
+111 |               variant="ghost"
+112 |               size="sm"
+113 |               onClick={handleCopy}
+114 |               className="text-emerald-700 hover:text-emerald-800 hover:bg-emerald-50"
+115 |             >
+116 |               {copied ? (
+117 |                 <Check className="h-4 w-4" />
+118 |               ) : (
+119 |                 <Copy className="h-4 w-4" />
+120 |               )}
+121 |               <span className="ml-2">{copied ? 'Copied!' : 'Copy'}</span>
+122 |             </Button>
+123 |           )}
+124 |         </DialogHeader>
+125 | 
+126 |         <div className="mt-4">
+127 |           {!summary ? (
+128 |             <div className="space-y-6">
+129 |               {steps.map((step, index) => (
+130 |                 <div
+131 |                   key={step}
+132 |                   className={cn(
+133 |                     "flex items-center gap-3 text-sm transition-opacity duration-200",
+134 |                     index > currentStep ? "opacity-40" : "opacity-100"
+135 |                   )}
+136 |                 >
+137 |                   {index === currentStep ? (
+138 |                     <Loader2 className="h-4 w-4 animate-spin" />
+139 |                   ) : (
+140 |                     <div className="h-4 w-4" />
+141 |                   )}
+142 |                   {step}
+143 |                 </div>
+144 |               ))}
+145 |             </div>
+146 |           ) : (
+147 |             <div className="max-h-[60vh] overflow-y-auto pr-2 custom-scrollbar">
+148 |               <ReactMarkdown 
+149 |                 className="prose prose-emerald prose-sm max-w-none"
+150 |                 components={{
+151 |                   h1: ({node, ...props}) => <h1 className="text-lg font-bold text-emerald-950 mb-2" {...props} />,
+152 |                   h2: ({node, ...props}) => <h2 className="text-base font-semibold text-emerald-900 mb-2" {...props} />,
+153 |                   h3: ({node, ...props}) => <h3 className="text-sm font-medium text-emerald-900 mb-1" {...props} />,
+154 |                   ul: ({node, ...props}) => <ul className="list-disc pl-4 space-y-1 mb-3" {...props} />,
+155 |                   ol: ({node, ...props}) => <ol className="list-decimal pl-4 space-y-1 mb-3" {...props} />,
+156 |                   li: ({node, ...props}) => <li className="text-emerald-900" {...props} />,
+157 |                   p: ({node, ...props}) => <p className="text-emerald-900 mb-3 leading-relaxed" {...props} />,
+158 |                   strong: ({node, ...props}) => <strong className="font-semibold text-emerald-950" {...props} />,
+159 |                   blockquote: ({node, ...props}) => (
+160 |                     <blockquote className="border-l-2 border-emerald-200 pl-4 italic text-emerald-900 my-2" {...props} />
+161 |                   ),
+162 |                 }}
+163 |               >
+164 |                 {summary}
+165 |               </ReactMarkdown>
+166 |             </div>
+167 |           )}
+168 |         </div>
+169 |       </DialogContent>
+170 |     </Dialog>
+171 |   );
+172 | }; 
+173 | 
+174 | const globalStyles = `
+175 | .custom-scrollbar {
+176 |   scrollbar-width: thin;
+177 |   scrollbar-color: #10B981 #F0FDF4;
+178 | }
+179 | 
+180 | .custom-scrollbar::-webkit-scrollbar {
+181 |   width: 6px;
+182 | }
+183 | 
+184 | .custom-scrollbar::-webkit-scrollbar-track {
+185 |   background: #F0FDF4;
+186 |   border-radius: 3px;
+187 | }
+188 | 
+189 | .custom-scrollbar::-webkit-scrollbar-thumb {
+190 |   background-color: #10B981;
+191 |   border-radius: 3px;
+192 | }
+193 | `; 
+```
+
+src/components/ui/summary-dropdown.tsx
+```
+1 | "use client";
+2 | 
+3 | import {
+4 |   DropdownMenu,
+5 |   DropdownMenuContent,
+6 |   DropdownMenuItem,
+7 |   DropdownMenuTrigger,
+8 | } from "@/components/ui/dropdown-menu";
+9 | import { Button } from "@/components/ui/button";
+10 | import { Plus } from "lucide-react";
+11 | import { useState } from "react";
+12 | import { SummaryDialog } from "@/components/ui/summary-dialog";
+13 | 
+14 | interface SummaryDropdownProps {
+15 |   channelId: string;
+16 |   isThread?: boolean;
+17 |   isDM?: boolean;
+18 |   threadId?: string;
+19 | }
+20 | 
+21 | export const SummaryDropdown = ({ channelId, isThread, isDM, threadId }: SummaryDropdownProps) => {
+22 |   const [dialogOpen, setDialogOpen] = useState(false);
+23 |   const [summaryType, setSummaryType] = useState<"channel" | "dm" | "thread">("channel");
+24 | 
+25 |   const handleSummaryClick = (type: "channel" | "dm" | "thread") => {
+26 |     setSummaryType(type);
+27 |     setDialogOpen(true);
+28 |   };
+29 | 
+30 |   return (
+31 |     <>
+32 |       <DropdownMenu>
+33 |         <DropdownMenuTrigger asChild>
+34 |           <Button variant="ghost" size="icon" className="h-8 w-8">
+35 |             <Plus className="h-4 w-4" />
+36 |           </Button>
+37 |         </DropdownMenuTrigger>
+38 |         <DropdownMenuContent align="start" side="top" className="w-48">
+39 |           {!isThread && !isDM && (
+40 |             <DropdownMenuItem onClick={() => handleSummaryClick("channel")}>
+41 |               Summarize messages
+42 |             </DropdownMenuItem>
+43 |           )}
+44 |           {isDM && (
+45 |             <DropdownMenuItem onClick={() => handleSummaryClick("dm")}>
+46 |               Summarize conversation
+47 |             </DropdownMenuItem>
+48 |           )}
+49 |           {isThread && (
+50 |             <DropdownMenuItem onClick={() => handleSummaryClick("thread")}>
+51 |               Summarize thread
+52 |             </DropdownMenuItem>
+53 |           )}
+54 |         </DropdownMenuContent>
+55 |       </DropdownMenu>
+56 | 
+57 |       <SummaryDialog 
+58 |         open={dialogOpen} 
+59 |         onOpenChange={setDialogOpen}
+60 |         summaryType={summaryType}
+61 |         channelId={channelId}
+62 |         threadId={threadId}
+63 |       />
+64 |     </>
+65 |   );
+66 | }; 
+```
+
+src/components/ui/user-action-menu.tsx
+```
+1 | "use client";
+2 | 
+3 | import {
+4 |   DropdownMenu,
+5 |   DropdownMenuContent,
+6 |   DropdownMenuItem,
+7 |   DropdownMenuTrigger,
+8 | } from "@/components/ui/dropdown-menu";
+9 | import { MessageSquare } from "lucide-react";
+10 | import { useCreateDM } from "@/app/features/channels/api/use-create-dm";
+11 | import { useWorkspaceId } from "@/hooks/use-workspace-id";
+12 | import { Id } from "../../../convex/_generated/dataModel";
+13 | import { useRouter } from "next/navigation";
+14 | import { useCurrentUser } from "@/app/features/auth/api/use-current-user";
+15 | import { useState } from "react";
+16 | 
+17 | interface UserActionMenuProps {
+18 |   userId: Id<"users">;
+19 |   userName: string;
+20 |   children: React.ReactNode;
+21 | }
+22 | 
+23 | export function UserActionMenu({ userId, userName, children }: UserActionMenuProps) {
+24 |   const workspaceId = useWorkspaceId();
+25 |   const createDM = useCreateDM();
+26 |   const router = useRouter();
+27 |   const { data: currentUser } = useCurrentUser();
+28 |   const [isOpen, setIsOpen] = useState(false);
+29 |   let hoverTimeout: NodeJS.Timeout;
+30 | 
+31 |   const handleStartDM = async () => {
+32 |     if (!workspaceId) return;
+33 |     const channelId = await createDM(workspaceId, userId);
+34 |     if (channelId) {
+35 |       router.push(`/workspace/${workspaceId}/channel/${channelId}`);
+36 |     }
+37 |   };
+38 | 
+39 |   // If this is the current user, just render the children without the dropdown
+40 |   if (userId === currentUser?._id) {
+41 |     return <>{children}</>;
+42 |   }
+43 | 
+44 |   return (
+45 |     <DropdownMenu open={isOpen} onOpenChange={setIsOpen}>
+46 |       <DropdownMenuTrigger asChild>
+47 |         <span 
+48 |           className="cursor-pointer hover:underline group relative"
+49 |           onMouseEnter={() => {
+50 |             hoverTimeout = setTimeout(() => setIsOpen(true), 500); // 500ms delay
+51 |           }}
+52 |           onMouseLeave={() => {
+53 |             clearTimeout(hoverTimeout);
+54 |           }}
+55 |         >
+56 |           {children}
+57 |         </span>
+58 |       </DropdownMenuTrigger>
+59 |       <DropdownMenuContent 
+60 |         side="right" 
+61 |         align="start" 
+62 |         className="w-48"
+63 |         onMouseLeave={() => setIsOpen(false)}
+64 |       >
+65 |         <DropdownMenuItem onClick={handleStartDM} className="cursor-pointer">
+66 |           <MessageSquare className="h-4 w-4 mr-2" />
+67 |           Message {userName}
+68 |         </DropdownMenuItem>
+69 |       </DropdownMenuContent>
+70 |     </DropdownMenu>
+71 |   );
+72 | } 
+```
+
+src/hooks/use-auto-scroll.tsx
+```
+1 | import { useCallback, useEffect, useRef, useState } from "react";
+2 | 
+3 | interface ScrollState {
+4 |   isAtBottom: boolean;
+5 |   autoScrollEnabled: boolean;
+6 | }
+7 | 
+8 | interface UseAutoScrollOptions {
+9 |   offset?: number;
+10 |   smooth?: boolean;
+11 |   content?: React.ReactNode;
+12 | }
+13 | 
+14 | export function useAutoScroll(options: UseAutoScrollOptions = {}) {
+15 |   const { offset = 20, smooth = false, content } = options;
+16 |   const scrollRef = useRef<HTMLDivElement>(null);
+17 |   const lastContentHeight = useRef(0);
+18 |   const userHasScrolled = useRef(false);
+19 | 
+20 |   const [scrollState, setScrollState] = useState<ScrollState>({
+21 |     isAtBottom: true,
+22 |     autoScrollEnabled: true,
+23 |   });
+24 | 
+25 |   const checkIsAtBottom = useCallback(
+26 |     (element: HTMLElement) => {
+27 |       const { scrollTop, scrollHeight, clientHeight } = element;
+28 |       const distanceToBottom = Math.abs(
+29 |         scrollHeight - scrollTop - clientHeight
+30 |       );
+31 |       return distanceToBottom <= offset;
+32 |     },
+33 |     [offset]
+34 |   );
+35 | 
+36 |   const scrollToBottom = useCallback(
+37 |     (instant?: boolean) => {
+38 |       if (!scrollRef.current) return;
+39 | 
+40 |       const targetScrollTop =
+41 |         scrollRef.current.scrollHeight - scrollRef.current.clientHeight;
+42 | 
+43 |       if (instant) {
+44 |         scrollRef.current.scrollTop = targetScrollTop;
+45 |       } else {
+46 |         scrollRef.current.scrollTo({
+47 |           top: targetScrollTop,
+48 |           behavior: smooth ? "smooth" : "auto",
+49 |         });
+50 |       }
+51 | 
+52 |       setScrollState({
+53 |         isAtBottom: true,
+54 |         autoScrollEnabled: true,
+55 |       });
+56 |       userHasScrolled.current = false;
+57 |     },
+58 |     [smooth]
+59 |   );
+60 | 
+61 |   const handleScroll = useCallback(() => {
+62 |     if (!scrollRef.current) return;
+63 | 
+64 |     const atBottom = checkIsAtBottom(scrollRef.current);
+65 | 
+66 |     setScrollState((prev) => ({
+67 |       isAtBottom: atBottom,
+68 |       // Re-enable auto-scroll if at the bottom
+69 |       autoScrollEnabled: atBottom ? true : prev.autoScrollEnabled,
+70 |     }));
+71 |   }, [checkIsAtBottom]);
+72 | 
+73 |   useEffect(() => {
+74 |     const element = scrollRef.current;
+75 |     if (!element) return;
+76 | 
+77 |     element.addEventListener("scroll", handleScroll, { passive: true });
+78 |     return () => element.removeEventListener("scroll", handleScroll);
+79 |   }, [handleScroll]);
+80 | 
+81 |   useEffect(() => {
+82 |     const scrollElement = scrollRef.current;
+83 |     if (!scrollElement) return;
+84 | 
+85 |     const currentHeight = scrollElement.scrollHeight;
+86 |     const hasNewContent = currentHeight !== lastContentHeight.current;
+87 | 
+88 |     if (hasNewContent) {
+89 |       if (scrollState.autoScrollEnabled) {
+90 |         requestAnimationFrame(() => {
+91 |           scrollToBottom(lastContentHeight.current === 0);
+92 |         });
+93 |       }
+94 |       lastContentHeight.current = currentHeight;
+95 |     }
+96 |   }, [content, scrollState.autoScrollEnabled, scrollToBottom]);
+97 | 
+98 |   useEffect(() => {
+99 |     const element = scrollRef.current;
+100 |     if (!element) return;
+101 | 
+102 |     const resizeObserver = new ResizeObserver(() => {
+103 |       if (scrollState.autoScrollEnabled) {
+104 |         scrollToBottom(true);
+105 |       }
+106 |     });
+107 | 
+108 |     resizeObserver.observe(element);
+109 |     return () => resizeObserver.disconnect();
+110 |   }, [scrollState.autoScrollEnabled, scrollToBottom]);
+111 | 
+112 |   const disableAutoScroll = useCallback(() => {
+113 |     const atBottom = scrollRef.current
+114 |       ? checkIsAtBottom(scrollRef.current)
+115 |       : false;
+116 | 
+117 |     // Only disable if not at bottom
+118 |     if (!atBottom) {
+119 |       userHasScrolled.current = true;
+120 |       setScrollState((prev) => ({
+121 |         ...prev,
+122 |         autoScrollEnabled: false,
+123 |       }));
+124 |     }
+125 |   }, [checkIsAtBottom]);
+126 | 
+127 |   return {
+128 |     scrollRef,
+129 |     isAtBottom: scrollState.isAtBottom,
+130 |     autoScrollEnabled: scrollState.autoScrollEnabled,
+131 |     scrollToBottom: () => scrollToBottom(false),
+132 |     disableAutoScroll,
+133 |   };
+134 | }
 ```
 
 src/hooks/use-workspace-id.ts
