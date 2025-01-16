@@ -44,7 +44,7 @@ export const SummaryDropdown = ({ channelId, isThread, isDM, threadId }: Summary
           </DropdownMenuItem>
           {!isThread && !isDM && (
             <DropdownMenuItem onClick={() => handleSummaryClick("channel")}>
-              Summarize messages
+              Summarize channel
             </DropdownMenuItem>
           )}
           {isDM && (

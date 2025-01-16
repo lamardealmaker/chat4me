@@ -1,6 +1,6 @@
 "use client";
 
-import { useParams } from "next/navigation";
+import { useParams, useSearchParams } from "next/navigation";
 import { useState, useRef, useEffect } from "react";
 import { useGetMessages } from "@/app/features/messages/api/use-get-messages";
 import { useSendMessage } from "@/app/features/messages/api/use-send-message";
@@ -72,13 +72,21 @@ const ChannelHeader = ({ channel }: { channel: any }) => {
 
 export default function ChannelPage() {
   const params = useParams();
+  const searchParams = useSearchParams();
+  const messageId = searchParams.get("messageId");
   const channelId = params.channelId as string;
   const workspaceId = params.workspaceId as Id<"workspaces">;
   const messagesEndRef = useRef<HTMLDivElement>(null);
+  const messageRefs = useRef<Record<string, HTMLDivElement>>({});
   const [isFirstLoad, setIsFirstLoad] = useState(true);
   const [inviteModalOpen, setInviteModalOpen] = useState(false);
   const [showImageDialog, setShowImageDialog] = useState(false);
   
+  // Check if message is in a thread
+  const parentMessage = useQuery(api.messages.get, messageId ? {
+    messageId: messageId as Id<"messages">
+  } : "skip");
+
   // Initialize presence
   usePresence(workspaceId);
 
@@ -109,6 +117,26 @@ export default function ChannelPage() {
       messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
     }
   }, [messages, isFirstLoad]);
+
+  // Handle message ID in URL - check if it's a thread message
+  useEffect(() => {
+    if (!messageId || !messages) return;
+
+    // First check if message is in main channel
+    if (messageRefs.current[messageId]) {
+      messageRefs.current[messageId].scrollIntoView({ behavior: "smooth" });
+      messageRefs.current[messageId].classList.add("bg-emerald-100");
+      setTimeout(() => {
+        messageRefs.current[messageId]?.classList.remove("bg-emerald-100");
+      }, 2000);
+      return;
+    }
+
+    // If not in main channel and we have parent message info, it's in a thread
+    if (parentMessage?.parentMessageId) {
+      setSelectedThread(parentMessage.parentMessageId);
+    }
+  }, [messageId, messages, parentMessage]);
 
   const handleReaction = async (messageId: Id<"messages">, emoji: string) => {
     try {
@@ -142,7 +170,12 @@ export default function ChannelPage() {
     
     if (!isDM) {
       return (
-        <div className="border border-emerald-100 p-3 rounded-lg hover:bg-emerald-50/50 transition bg-white shadow-sm">
+        <div 
+          ref={el => {
+            if (el) messageRefs.current[msg._id] = el;
+          }}
+          className="border border-emerald-100 p-3 rounded-lg hover:bg-emerald-50/50 transition bg-white shadow-sm"
+        >
           <div className="text-sm text-emerald-800 flex justify-between items-center mb-2">
             <div className="flex items-center gap-2">
               <UserActionMenu 

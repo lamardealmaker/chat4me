@@ -59,7 +59,8 @@ const schema = defineSchema({
   })
     .index("by_channel_id", ["channelId"])
     .index("by_user_id", ["userId"])
-    .index("by_parent_message_id", ["parentMessageId"]),
+    .index("by_parent_message_id", ["parentMessageId"])
+    .searchIndex("search_text", { searchField: "text" }),
 
   messageEmbeddings: defineTable({
     messageId: v.id("messages"),

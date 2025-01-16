@@ -57,10 +57,12 @@ export const send = mutation({
       isAI,
     });
 
+    console.log("Message created, scheduling embedding generation for:", messageId);
     // Generate and store embedding asynchronously
     await ctx.scheduler.runAfter(0, api.embeddings.generateAndStoreEmbedding, {
       messageId,
     });
+    console.log("Scheduled embedding generation for:", messageId);
 
     // Only check for AI responses if this isn't already an AI message
     if (!isAI) {
@@ -457,5 +459,33 @@ export const sendConfirmedImageMessage = mutation({
     });
 
     return message;
+  },
+});
+
+export const search = query({
+  args: {
+    workspaceId: v.id("workspaces"),
+    query: v.string(),
+    startTime: v.number(),
+    limit: v.number(),
+  },
+  handler: async (ctx, { workspaceId, query, startTime, limit }) => {
+    // Get all channels in workspace
+    const channels = await ctx.db
+      .query("channels")
+      .withIndex("by_workspace_id", (q) => q.eq("workspaceId", workspaceId))
+      .collect();
+
+    // Search messages in those channels
+    return await ctx.db
+      .query("messages")
+      .withSearchIndex("search_text", (q) => q.search("text", query))
+      .filter((q) => 
+        q.and(
+          q.lt(q.field("createdAt"), startTime),
+          q.or(...channels.map(channel => q.eq(q.field("channelId"), channel._id)))
+        )
+      )
+      .take(limit);
   },
 });

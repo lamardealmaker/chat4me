@@ -9,7 +9,7 @@ import { Id } from "../../../../../../convex/_generated/dataModel";
 import { EmojiPicker } from "@/components/emoji-picker";
 import { Smile, Plus, ImageIcon } from "lucide-react";
 import { MessagePresence } from "@/app/features/presence/components/message-presence";
-import { useParams } from "next/navigation";
+import { useParams, useSearchParams } from "next/navigation";
 import { SummaryDropdown } from "@/components/ui/summary-dropdown";
 import { ImageGenerationDialog } from "@/components/ui/image-generation-dialog";
 import Image from "next/image";
@@ -36,10 +36,13 @@ export function ThreadPanel({
   onClose: () => void;
 }) {
   const params = useParams();
+  const searchParams = useSearchParams();
+  const messageId = searchParams.get("messageId");
   const workspaceId = params.workspaceId as Id<"workspaces">;
   const [text, setText] = useState("");
   const [isFirstLoad, setIsFirstLoad] = useState(true);
   const messagesEndRef = useRef<HTMLDivElement>(null);
+  const messageRefs = useRef<Record<string, HTMLDivElement>>({});
   const parentMessage = useQuery(api.messages.get, {
     messageId: parentMessageId,
   });
@@ -65,6 +68,22 @@ export function ThreadPanel({
     }
   }, [threadMessages, isFirstLoad]);
 
+  // Scroll to specific message if it's in this thread
+  useEffect(() => {
+    if (!messageId || !threadMessages) return;
+
+    // Wait a bit for the refs to be populated
+    setTimeout(() => {
+      if (messageRefs.current[messageId]) {
+        messageRefs.current[messageId].scrollIntoView({ behavior: "smooth" });
+        messageRefs.current[messageId].classList.add("bg-emerald-100");
+        setTimeout(() => {
+          messageRefs.current[messageId]?.classList.remove("bg-emerald-100");
+        }, 2000);
+      }
+    }, 100);
+  }, [messageId, threadMessages]);
+
   const handleReaction = async (messageId: Id<"messages">, emoji: string) => {
     try {
       await toggleReaction({ messageId, emoji });
@@ -88,7 +107,12 @@ export function ThreadPanel({
   };
 
   const MessageWithReactions = ({ message }: { message: any }) => (
-    <div className="border border-emerald-100 p-3 rounded-lg hover:bg-emerald-50/50 transition bg-white shadow-sm">
+    <div 
+      ref={el => {
+        if (el) messageRefs.current[message._id] = el;
+      }}
+      className="border border-emerald-100 p-3 rounded-lg hover:bg-emerald-50/50 transition bg-white shadow-sm"
+    >
       <div className="flex items-center gap-2 mb-2">
         <div className="flex items-center gap-2">
           <strong className="font-medium text-emerald-900">{message.userName}</strong>

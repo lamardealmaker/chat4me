@@ -1,7 +1,7 @@
 import { v } from "convex/values";
 import { action, internalAction, internalMutation, internalQuery } from "./_generated/server";
 import OpenAI from "openai";
-import { internal } from "./_generated/api";
+import { internal, api } from "./_generated/api";
 import { Doc, Id } from "./_generated/dataModel";
 
 // Type for search results
@@ -84,17 +84,25 @@ export const fetchMessages = internalQuery({
 export const generateAndStoreEmbedding = action({
   args: { messageId: v.id("messages") },
   handler: async (ctx, { messageId }) => {
+    console.log("Generating embedding for message:", messageId);
+    
     const message = await ctx.runQuery(internal.embeddings.getMessage, { messageId });
-    if (!message) return;
+    if (!message) {
+      console.log("Message not found:", messageId);
+      return;
+    }
 
+    console.log("Generating vector for text:", message.text.slice(0, 50) + "...");
     const vector = await ctx.runAction(internal.embeddings.generateEmbedding, {
       text: message.text,
     });
 
+    console.log("Storing vector of length:", vector.length);
     await ctx.runMutation(internal.embeddings.storeEmbedding, {
       messageId,
       vector,
     });
+    console.log("Successfully stored embedding for message:", messageId);
   },
 });
 
@@ -132,5 +140,218 @@ export const findSimilarMessages = action({
       ...msg,
       _score: resultScores.get(msg._id.toString()) ?? 0,
     }));
+  },
+});
+
+export type SearchResultType = Doc<"messages"> & {
+  userName: string;
+  channelName: string;
+  _score: number;
+};
+
+interface Channel {
+  _id: Id<"channels">;
+  name: string;
+  workspaceId: Id<"workspaces">;
+  type: "public" | "private" | "dm";
+  userIds?: Id<"users">[];
+}
+
+export const getChannels = internalQuery({
+  args: { workspaceId: v.id("workspaces") },
+  handler: async (ctx, { workspaceId }) => {
+    return await ctx.db
+      .query("channels")
+      .withIndex("by_workspace_id", (q) => q.eq("workspaceId", workspaceId))
+      .collect();
+  },
+});
+
+export const searchMessages = action({
+  args: {
+    workspaceId: v.id("workspaces"),
+    query: v.string(),
+    cursor: v.optional(v.string()),
+    limit: v.optional(v.number()),
+  },
+  handler: async (ctx, { workspaceId, query, cursor, limit = 10 }): Promise<{ results: SearchResultType[], nextCursor?: string }> => {
+    console.log("Searching messages with query:", query);
+    
+    // Generate embedding for vector search
+    const vector = await ctx.runAction(internal.embeddings.generateEmbedding, {
+      text: query,
+    });
+    console.log("Generated search vector of length:", vector.length);
+
+    // Get all channels in workspace (do this once)
+    const channels = await ctx.runQuery(internal.embeddings.getChannels, { workspaceId }) as Channel[];
+    console.log("Found channels:", channels.length);
+    const channelIds = channels.map((c: Channel) => c._id);
+    const channelMap = new Map(channels.map((c: Channel) => [c._id.toString(), c]));
+
+    // Vector search with higher limit since we'll filter more aggressively
+    const vectorResults = await ctx.vectorSearch("messageEmbeddings", "by_vector", {
+      vector,
+      limit: 30, // Increased from 20 to account for filtering
+    });
+    console.log("Vector search results:", vectorResults.length);
+
+    // Get message data for all results
+    const messageData = await Promise.all(
+      vectorResults.map(async r => {
+        const data = await ctx.runQuery(internal.embeddings.getEmbeddingAndMessage, { 
+          embeddingId: r._id 
+        });
+        return { score: r._score, data };
+      })
+    );
+
+    // Log semantic search results with channel info
+    console.log("\n=== Semantic Search Results ===");
+    messageData
+      .filter(r => r.data?.message)
+      .sort((a, b) => b.score - a.score)
+      .forEach((result, i) => {
+        const msg = result.data?.message;
+        const channel = msg ? channelMap.get(msg.channelId.toString()) : null;
+        console.log(`\n#${i + 1} (Score: ${result.score.toFixed(4)} | Channel: ${channel?.name || 'unknown'})\n"${msg?.text || 'N/A'}"`);
+      });
+    console.log("\n=== End Semantic Results ===\n");
+
+    // Track seen message IDs to avoid duplicates
+    const seenMessageIds = new Set<string>();
+    const combinedResults: SearchResultType[] = [];
+    
+    // Function to check if a message is worth including
+    const isQualityMatch = (text: string, score: number) => {
+      const words = query.trim().split(/\s+/);
+      const isOneWord = words.length === 1;
+      
+      if (isOneWord) {
+        // For single-word queries, require high score or exact match
+        const exactMatch = text.toLowerCase().includes(query.toLowerCase());
+        return exactMatch || score > 0.95;
+      }
+      
+      // For multi-word queries, use normal scoring
+      return true;
+    };
+
+    // Add semantic search results
+    for (const [index, result] of vectorResults.entries()) {
+      const data = messageData[index].data?.message;
+      const score = messageData[index].score;
+      
+      if (!data) continue;
+      
+      // Apply quality filter
+      if (!isQualityMatch(data.text, score)) {
+        console.log(`Filtering out low-quality match: "${data.text.slice(0, 100)}${data.text.length > 100 ? '...' : ''}" (score: ${score})`);
+        continue;
+      }
+
+      seenMessageIds.add(data._id.toString());
+      
+      // Check if message is in any workspace channel
+      const channel = channelMap.get(data.channelId.toString());
+      if (!channel) {
+        console.log(`Skipping message from unknown channel: "${data.text.slice(0, 100)}${data.text.length > 100 ? '...' : ''}"`);
+        continue;
+      }
+
+      // Get user info
+      const user = await ctx.runQuery(internal.embeddings.getUser, { userId: data.userId });
+      if (!user) continue;
+
+      combinedResults.push({
+        ...data,
+        userName: user.name ?? "Unknown",
+        channelName: channel.name,
+        _score: score,
+      });
+    }
+
+    // Keyword search
+    const startTime = cursor ? parseInt(cursor) : Date.now();
+    const keywordMessages = await ctx.runQuery(api.messages.search, {
+      workspaceId,
+      query,
+      startTime,
+      limit: 20,
+    });
+
+    console.log("\n=== Keyword Search Results ===");
+    // Add keyword results (only if they pass quality filter)
+    for (const msg of keywordMessages) {
+      if (seenMessageIds.has(msg._id.toString())) {
+        console.log(`Skipping duplicate message: "${msg.text.slice(0, 100)}${msg.text.length > 100 ? '...' : ''}"`);
+        continue;
+      }
+
+      // Apply quality filter for keyword results too
+      if (!isQualityMatch(msg.text, 0)) {
+        console.log(`Filtering out low-quality keyword match: "${msg.text.slice(0, 100)}${msg.text.length > 100 ? '...' : ''}"`);
+        continue;
+      }
+
+      seenMessageIds.add(msg._id.toString());
+
+      const channel = channelMap.get(msg.channelId.toString());
+      if (!channel) {
+        console.log(`Skipping keyword match from unknown channel: "${msg.text.slice(0, 100)}${msg.text.length > 100 ? '...' : ''}"`);
+        continue;
+      }
+
+      const user = await ctx.runQuery(internal.embeddings.getUser, { userId: msg.userId });
+      if (!user) continue;
+
+      console.log(`\nKeyword match in ${channel.name}: "${msg.text}"`);
+
+      combinedResults.push({
+        ...msg,
+        userName: user.name ?? "Unknown",
+        channelName: channel.name,
+        _score: 0, // Keyword results get lower priority
+      });
+    }
+    console.log("\n=== End Keyword Results ===\n");
+
+    // Sort results - semantic matches first, then by date
+    combinedResults.sort((a, b) => {
+      if (a._score !== b._score) {
+        return b._score - a._score;
+      }
+      return b.createdAt - a.createdAt;
+    });
+
+    // Log channel distribution
+    const channelCounts = new Map<string, number>();
+    for (const result of combinedResults) {
+      channelCounts.set(result.channelName, (channelCounts.get(result.channelName) || 0) + 1);
+    }
+    console.log("\nResults by channel:");
+    for (const [channel, count] of channelCounts.entries()) {
+      console.log(`${channel}: ${count} results`);
+    }
+
+    console.log(`\nTotal results: ${combinedResults.length} (${vectorResults.length} semantic + ${keywordMessages.length} keyword - ${seenMessageIds.size} unique)\n`);
+
+    return {
+      results: combinedResults,
+      nextCursor: undefined
+    };
+  },
+});
+
+export const getEmbeddingAndMessage = internalQuery({
+  args: { embeddingId: v.id("messageEmbeddings") },
+  handler: async (ctx, { embeddingId }) => {
+    const embedding = await ctx.db.get(embeddingId);
+    if (!embedding) return null;
+    
+    const message = await ctx.db.get(embedding.messageId);
+    if (!message) return null;
+    
+    return { message, embedding };
   },
 }); 
