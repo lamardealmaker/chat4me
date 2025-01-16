@@ -271,7 +271,14 @@ Respond in user's style.`
   }
 
   const result = await response.json();
-  return result.choices[0].message.content;
+  const aiResponse = result.choices[0].message.content;
+  
+  // Clean markdown formatting
+  const cleanResponse = aiResponse.replace(/\*\*(.*?)\*\*/g, '$1')  // Remove bold
+    .replace(/##\s*(.*?)(?:\n|$)/g, '$1')  // Remove headers
+    .replace(/\n{3,}/g, '\n\n');  // Normalize multiple newlines
+    
+  return cleanResponse;
 }
 
 // Debug functions
