@@ -6,7 +6,7 @@ const crons = cronJobs();
 // Process AI tasks every minute
 crons.interval(
   "process-ai-tasks",
-  { minutes: 1 },
+  { seconds: 5 },
   api.ai.processPendingTasks,
   {}
 );

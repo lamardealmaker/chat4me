@@ -570,395 +570,447 @@ convex/ai.ts
 110 |         const similarMessages = await ctx.runAction(api.embeddings.findSimilarMessages, {
 111 |           text: message.text,
 112 |           limit: 5,
-113 |         });
-114 |         console.log(`[${timestamp}] 🤖 CRON: Found ${similarMessages.length} similar messages`);
-115 | 
-116 |         // Generate AI response based on context
-117 |         const response = await generateAIResponse(ctx, message, similarMessages);
-118 |         console.log(`[${timestamp}] 🤖 CRON: Generated AI response (${response.length} chars)`);
-119 | 
-120 |         // Send the response as the offline user, but marked as AI
-121 |         await ctx.runMutation(api.messages.send, {
-122 |           channelId: task.channelId,
-123 |           text: response,
-124 |           parentMessageId: message.parentMessageId,
-125 |           isAI: true,
-126 |           userId: task.userId,
-127 |         });
-128 |         console.log(`[${timestamp}] 🤖 CRON: Sent AI response`);
-129 | 
-130 |         // Mark as completed
-131 |         await ctx.runMutation(internal.ai.updateTaskStatus, {
-132 |           taskId: task._id,
-133 |           status: "completed",
-134 |           completedAt: Date.now(),
-135 |         });
-136 |         console.log(`[${timestamp}] 🤖 CRON: Completed task ${task._id}`);
-137 |       } catch (error: any) {
-138 |         console.error(`[${timestamp}] 🤖 CRON: Failed to process task ${task._id}`, {
-139 |           error: error.message,
-140 |           stack: error.stack
-141 |         });
-142 |         // Mark as failed
-143 |         await ctx.runMutation(internal.ai.updateTaskStatus, {
-144 |           taskId: task._id,
-145 |           status: "failed",
-146 |           error: error.message,
-147 |         });
-148 |       }
-149 |     }
-150 |   },
-151 | });
-152 | 
-153 | // Helper function to generate AI response
-154 | async function generateAIResponse(
-155 |   ctx: ActionCtx,
-156 |   message: Doc<"messages">,
-157 |   similarMessages: Array<Doc<"messages"> & { userName: string }>
-158 | ): Promise<string> {
-159 |   const apiKey = process.env.OPENAI_API_KEY;
-160 |   if (!apiKey) {
-161 |     throw new Error("OPENAI_API_KEY environment variable not set");
-162 |   }
-163 | 
-164 |   // Get user's recent messages for style matching
-165 |   const recentMessages = await ctx.runQuery(internal.ai.getRecentMessages, {
-166 |     userId: message.userId,
-167 |   });
-168 | 
-169 |   // If this is a thread reply, get the parent message for context
-170 |   let threadContext = "";
-171 |   if (message.parentMessageId) {
-172 |     const parentMessage = await ctx.runQuery(api.messages.getMessage, { messageId: message.parentMessageId });
-173 |     if (parentMessage) {
-174 |       threadContext = `\nThis is a reply to the following message: "${parentMessage.text}"
-175 | Please ensure your response is relevant to this specific conversation thread.`;
-176 |     }
-177 |   }
-178 | 
-179 |   // Build the prompt
-180 |   const prompt = `Please respond to this message: "${message.text}"${threadContext}
-181 | 
-182 | ${message.parentMessageId ? 'Here are some similar thread responses for context:' : 'Here is context of possible answers:'}
-183 | ${similarMessages.map(m => `- ${m.text}`).join('\n')}
-184 | 
-185 | Here is the user's writing style and tone (examples from their 25 latest messages):
-186 | ${recentMessages.map((m: Doc<"messages">) => `- ${m.text}`).join('\n')}
+113 |           userId: message.parentMessageId 
+114 |             ? (await ctx.runQuery(api.messages.getMessage, { messageId: message.parentMessageId }))?.userId ?? task.userId 
+115 |             : task.userId,
+116 |         });
+117 |         console.log(`[${timestamp}] 🤖 CRON: Found ${similarMessages.length} similar messages from original poster`);
+118 | 
+119 |         // Generate AI response based on context
+120 |         const response = await generateAIResponse(ctx, message, similarMessages, task.userId);
+121 |         console.log(`[${timestamp}] 🤖 CRON: Generated AI response (${response.length} chars)`);
+122 | 
+123 |         // Send the response as the offline user, but marked as AI
+124 |         await ctx.runMutation(api.messages.send, {
+125 |           channelId: task.channelId,
+126 |           text: response,
+127 |           parentMessageId: message.parentMessageId,
+128 |           isAI: true,
+129 |           userId: task.userId,
+130 |         });
+131 |         console.log(`[${timestamp}] 🤖 CRON: Sent AI response`);
+132 | 
+133 |         // Mark as completed
+134 |         await ctx.runMutation(internal.ai.updateTaskStatus, {
+135 |           taskId: task._id,
+136 |           status: "completed",
+137 |           completedAt: Date.now(),
+138 |         });
+139 |         console.log(`[${timestamp}] 🤖 CRON: Completed task ${task._id}`);
+140 |       } catch (error: any) {
+141 |         console.error(`[${timestamp}] 🤖 CRON: Failed to process task ${task._id}`, {
+142 |           error: error.message,
+143 |           stack: error.stack
+144 |         });
+145 |         // Mark as failed
+146 |         await ctx.runMutation(internal.ai.updateTaskStatus, {
+147 |           taskId: task._id,
+148 |           status: "failed",
+149 |           error: error.message,
+150 |         });
+151 |       }
+152 |     }
+153 |   },
+154 | });
+155 | 
+156 | // Helper function to generate AI response
+157 | async function generateAIResponse(
+158 |   ctx: ActionCtx,
+159 |   message: Doc<"messages">,
+160 |   similarMessages: Array<Doc<"messages"> & { userName: string }>,
+161 |   styleUserId: Id<"users">
+162 | ): Promise<string> {
+163 |   const apiKey = process.env.OPENAI_API_KEY;
+164 |   if (!apiKey) {
+165 |     throw new Error("OPENAI_API_KEY environment variable not set");
+166 |   }
+167 | 
+168 |   // Get user's recent messages for style matching
+169 |   const recentMessages = await ctx.runQuery(internal.ai.getRecentMessages, {
+170 |     userId: styleUserId,
+171 |   });
+172 | 
+173 |   // Filter out test messages, debug prompts, and duplicates
+174 |   const MAX_STYLE_LENGTH = 300;
+175 |   const filteredRecentMessages = await Promise.all(
+176 |     recentMessages
+177 |       .filter(m => !m.text.includes("test message"))
+178 |       .filter(m => !m.text.includes("🤖 Debug - Prompt:"))
+179 |       .filter(m => !m.isAI) // Remove AI-generated messages
+180 |       .filter((m, i, arr) => arr.findIndex(msg => msg.text === m.text) === i)
+181 |       .map(async (msg) => {
+182 |         // Get channel to check if it's a DM
+183 |         const channel = await ctx.runQuery(internal.ai.getChannel, { channelId: msg.channelId });
+184 |         return { msg, channel };
+185 |       })
+186 |   );
 187 | 
-188 | ${message.parentMessageId ? 'Keep the response focused on the thread topic and parent message context.' : 'Output answer using the user\'s style and personality.'}`;
-189 | 
-190 |   // Call OpenAI for response
-191 |   const response = await fetch("https://api.openai.com/v1/chat/completions", {
-192 |     method: "POST",
-193 |     headers: {
-194 |       "Content-Type": "application/json",
-195 |       Authorization: `Bearer ${apiKey}`,
-196 |     },
-197 |     body: JSON.stringify({
-198 |         // dont change model name
-199 |       model: "gpt-4o-mini",
-200 |       messages: [
-201 |         {
-202 |           role: "system",
-203 |           content: message.parentMessageId 
-204 |             ? "You are an AI assistant responding in a message thread. Focus on the specific conversation context while matching the user's style."
-205 |             : "You are an AI assistant responding on behalf of a user. Match their writing style, tone, and personality while providing helpful responses.",
-206 |         },
-207 |         {
-208 |           role: "user",
-209 |           content: prompt,
-210 |         },
-211 |       ],
-212 |       temperature: 0.7,
-213 |     }),
-214 |   });
-215 | 
-216 |   if (!response.ok) {
-217 |     throw new Error(`OpenAI API error: ${response.statusText}`);
-218 |   }
-219 | 
-220 |   const result = await response.json();
-221 |   return result.choices[0].message.content;
-222 | }
-223 | 
-224 | // Debug functions
-225 | export const testAIResponse = mutation({
-226 |   args: {
-227 |     workspaceId: v.optional(v.id("workspaces")),
-228 |   },
-229 |   handler: async (ctx: MutationCtx, args) => {
-230 |     // 1. Get current user
-231 |     const userId = await auth.getUserId(ctx);
-232 |     if (!userId) throw new Error("Not authenticated");
-233 | 
-234 |     // 2. Get or use provided workspace
-235 |     const workspaceId = args.workspaceId || await ctx.db
-236 |       .query("workspaces")
-237 |       .first()
-238 |       .then((ws: Doc<"workspaces"> | null) => ws?._id);
-239 |     if (!workspaceId) throw new Error("No workspace found");
-240 | 
-241 |     // 3. Find another user in the workspace
-242 |     const otherMember = await ctx.db
-243 |       .query("members")
-244 |       .withIndex("by_workspace_id", (q: any) => q.eq("workspaceId", workspaceId))
-245 |       .filter((q: any) => q.neq(q.field("userId"), userId))
-246 |       .first();
-247 |     if (!otherMember) throw new Error("No other user found");
-248 | 
-249 |     // 4. Create or get DM channel
-250 |     const channel = await ctx.db
-251 |       .query("channels")
-252 |       .withIndex("by_workspace_id", (q: any) => q.eq("workspaceId", workspaceId))
-253 |       .filter((q: any) => 
-254 |         q.and(
-255 |           q.eq(q.field("type"), "dm"),
-256 |           q.eq(q.field("userIds"), [userId, otherMember.userId].sort())
-257 |         )
-258 |       )
-259 |       .first();
-260 | 
-261 |     const channelId = channel?._id || await ctx.db.insert("channels", {
-262 |       workspaceId,
-263 |       type: "dm",
-264 |       userIds: [userId, otherMember.userId].sort(),
-265 |       name: "Test DM"
-266 |     });
+188 |   // Filter DMs and limit by length
+189 |   const publicMessages = filteredRecentMessages
+190 |     .filter(({ channel }) => channel?.type !== "dm")
+191 |     .reduce((acc: Doc<"messages">[], { msg }) => {
+192 |       const currentLength = acc.reduce((sum, m) => sum + m.text.length, 0);
+193 |       if (currentLength < MAX_STYLE_LENGTH) {
+194 |         acc.push(msg);
+195 |       }
+196 |       return acc;
+197 |     }, []);
+198 | 
+199 |   // If this is a thread reply, get the parent message for context
+200 |   let parentMessage = null;
+201 |   let threadContext = "";
+202 |   if (message.parentMessageId) {
+203 |     parentMessage = await ctx.runQuery(api.messages.getMessage, { messageId: message.parentMessageId });
+204 |     if (parentMessage) {
+205 |       threadContext = `\nThis is a reply to the following message: "${parentMessage.text}"
+206 | Please ensure your response is relevant to this specific conversation thread.`;
+207 |     }
+208 |   }
+209 | 
+210 |   // Build the prompt
+211 |   const prompt = `Question: "${message.text}"
+212 | 
+213 | ${message.parentMessageId && parentMessage ? `Parent Message: "${parentMessage.text}"` : ''}
+214 | 
+215 | Similar Messages:
+216 | ${similarMessages.map((m, i) => `[${i + 1}] ${m.text}`).join('\n')}
+217 | 
+218 | User's Writing Style:
+219 | ${publicMessages.map((m, i) => `[${i + 1}] ${m.text}`).join('\n')}
+220 | 
+221 | ${message.parentMessageId ? 
+222 |   `Instructions:
+223 | 1. Focus on thread topic if directly relevant
+224 | 2. Use similar messages if referenced
+225 | 3. Combine both if appropriate
+226 | 
+227 | Respond in user's style.` 
+228 |   : 'Respond in user\'s style.'}`;
+229 | 
+230 |   // Only send debug message if DEBUG_AI_PROMPTS is true
+231 |   const DEBUG_AI_PROMPTS = false;  // Set to true to see prompts
+232 |   if (DEBUG_AI_PROMPTS) {
+233 |     await ctx.runMutation(api.messages.send, {
+234 |       channelId: message.channelId,
+235 |       text: `🤖 Prompt Preview:\n${prompt}`,
+236 |       parentMessageId: message.parentMessageId,
+237 |       isAI: true,
+238 |       userId: message.userId,
+239 |     });
+240 |   }
+241 | 
+242 |   // Call OpenAI for response
+243 |   const response = await fetch("https://api.openai.com/v1/chat/completions", {
+244 |     method: "POST",
+245 |     headers: {
+246 |       "Content-Type": "application/json",
+247 |       Authorization: `Bearer ${apiKey}`,
+248 |     },
+249 |     body: JSON.stringify({
+250 |         // dont change model name
+251 |       model: "gpt-4o-mini",
+252 |       messages: [
+253 |         {
+254 |           role: "system",
+255 |           content: message.parentMessageId 
+256 |             ? "You are an AI assistant responding in a message thread. Focus on the specific conversation context while matching the user's style."
+257 |             : "You are an AI assistant responding on behalf of a user. Match their writing style, tone, and personality while providing helpful responses.",
+258 |         },
+259 |         {
+260 |           role: "user",
+261 |           content: prompt,
+262 |         },
+263 |       ],
+264 |       temperature: 0.7,
+265 |     }),
+266 |   });
 267 | 
-268 |     // 5. Send test message
-269 |     const messageId = await ctx.db.insert("messages", {
-270 |       channelId,
-271 |       userId,
-272 |       text: "This is a test message to trigger an AI response",
-273 |       createdAt: Date.now(),
-274 |     });
+268 |   if (!response.ok) {
+269 |     throw new Error(`OpenAI API error: ${response.statusText}`);
+270 |   }
+271 | 
+272 |   const result = await response.json();
+273 |   return result.choices[0].message.content;
+274 | }
 275 | 
-276 |     // 6. Queue AI response
-277 |     await ctx.db.insert("aiTasks", {
-278 |       channelId,
-279 |       userId: otherMember.userId,
-280 |       messageId,
-281 |       status: "pending",
-282 |       createdAt: Date.now(),
-283 |     });
-284 | 
-285 |     return {
-286 |       channelId,
-287 |       messageId,
-288 |       otherUserId: otherMember.userId,
-289 |       status: "Test message sent and AI task queued"
-290 |     };
-291 |   },
-292 | });
-293 | 
-294 | // Debug query to check pending tasks
-295 | export const checkPendingTasks = query({
-296 |   args: {},
-297 |   handler: async (ctx: QueryCtx) => {
-298 |     const tasks = await ctx.db
-299 |       .query("aiTasks")
-300 |       .filter((q: any) => q.eq(q.field("status"), "pending"))
-301 |       .collect();
-302 |     
-303 |     return tasks.map((task: Doc<"aiTasks">) => ({
-304 |       ...task,
-305 |       createdAt: new Date(task.createdAt).toISOString()
-306 |     }));
-307 |   },
-308 | });
-309 | 
-310 | // Debug query to check full flow
-311 | export const debugFullFlow = query({
-312 |   args: {},
-313 |   handler: async (ctx: QueryCtx) => {
-314 |     const userId = await auth.getUserId(ctx);
-315 |     if (!userId) return { 
-316 |       tasks: [],
-317 |       messages: [],
-318 |       status: "error: not authenticated" 
-319 |     };
-320 | 
-321 |     try {
-322 |       // 1. Check for pending tasks
-323 |       const tasks = await ctx.db
-324 |         .query("aiTasks")
-325 |         .order("desc")
-326 |         .take(5);
+276 | // Debug functions
+277 | export const testAIResponse = mutation({
+278 |   args: {
+279 |     workspaceId: v.optional(v.id("workspaces")),
+280 |   },
+281 |   handler: async (ctx: MutationCtx, args) => {
+282 |     // 1. Get current user
+283 |     const userId = await auth.getUserId(ctx);
+284 |     if (!userId) throw new Error("Not authenticated");
+285 | 
+286 |     // 2. Get or use provided workspace
+287 |     const workspaceId = args.workspaceId || await ctx.db
+288 |       .query("workspaces")
+289 |       .first()
+290 |       .then((ws: Doc<"workspaces"> | null) => ws?._id);
+291 |     if (!workspaceId) throw new Error("No workspace found");
+292 | 
+293 |     // 3. Find another user in the workspace
+294 |     const otherMember = await ctx.db
+295 |       .query("members")
+296 |       .withIndex("by_workspace_id", (q: any) => q.eq("workspaceId", workspaceId))
+297 |       .filter((q: any) => q.neq(q.field("userId"), userId))
+298 |       .first();
+299 |     if (!otherMember) throw new Error("No other user found");
+300 | 
+301 |     // 4. Create or get DM channel
+302 |     const channel = await ctx.db
+303 |       .query("channels")
+304 |       .withIndex("by_workspace_id", (q: any) => q.eq("workspaceId", workspaceId))
+305 |       .filter((q: any) => 
+306 |         q.and(
+307 |           q.eq(q.field("type"), "dm"),
+308 |           q.eq(q.field("userIds"), [userId, otherMember.userId].sort())
+309 |         )
+310 |       )
+311 |       .first();
+312 | 
+313 |     const channelId = channel?._id || await ctx.db.insert("channels", {
+314 |       workspaceId,
+315 |       type: "dm",
+316 |       userIds: [userId, otherMember.userId].sort(),
+317 |       name: "Test DM"
+318 |     });
+319 | 
+320 |     // 5. Send test message
+321 |     const messageId = await ctx.db.insert("messages", {
+322 |       channelId,
+323 |       userId,
+324 |       text: "This is a test message to trigger an AI response",
+325 |       createdAt: Date.now(),
+326 |     });
 327 | 
-328 |       const formattedTasks = tasks.map((t: Doc<"aiTasks">) => ({
-329 |         ...t,
-330 |         createdAt: new Date(t.createdAt).toISOString(),
-331 |         completedAt: t.completedAt ? new Date(t.completedAt).toISOString() : undefined
-332 |       }));
-333 | 
-334 |       // 2. Get messages from the most recent task's channel
-335 |       let formattedMessages: Array<{
-336 |         _id: Id<"messages">;
-337 |         userId: Id<"users">;
-338 |         channelId: Id<"channels">;
-339 |         text: string;
-340 |         createdAt: string;
-341 |         userName: string;
-342 |         isAIResponse: boolean;
-343 |         parentMessageId?: Id<"messages">;
-344 |       }> = [];
-345 |       if (tasks.length > 0) {
-346 |         const latestTask = tasks[0];
-347 |         const messages = await ctx.db
-348 |           .query("messages")
-349 |           .withIndex("by_channel_id", (q: any) => q.eq("channelId", latestTask.channelId))
-350 |           .order("desc")
-351 |           .take(5);
-352 | 
-353 |         formattedMessages = await Promise.all(messages.map(async (msg: Doc<"messages">) => {
-354 |           const user = await ctx.db.get(msg.userId);
-355 |           return {
-356 |             ...msg,
-357 |             userName: user?.name || "Unknown",
-358 |             createdAt: new Date(msg.createdAt).toISOString(),
-359 |             isAIResponse: !!msg.isAI
-360 |           };
-361 |         }));
-362 |       }
-363 | 
-364 |       return {
-365 |         tasks: formattedTasks,
-366 |         messages: formattedMessages,
-367 |         status: "success"
-368 |       };
-369 |     } catch (error: any) {
-370 |       return {
-371 |         tasks: [],
-372 |         messages: [],
-373 |         status: `error: ${error.message}`
-374 |       };
-375 |     }
-376 |   }
-377 | });
-378 | 
-379 | // Internal query to get channel
-380 | export const getChannel = internalQuery({
-381 |   args: { channelId: v.id("channels") },
-382 |   handler: async (ctx: QueryCtx, { channelId }) => {
-383 |     return await ctx.db
-384 |       .query("channels")
-385 |       .filter((q) => q.eq(q.field("_id"), channelId))
-386 |       .first();
-387 |   },
-388 | });
-389 | 
-390 | // Internal query to check workspace membership
-391 | export const checkMembership = internalQuery({
-392 |   args: { 
-393 |     workspaceId: v.id("workspaces"),
-394 |     userId: v.id("users")
-395 |   },
-396 |   handler: async (ctx: QueryCtx, { workspaceId, userId }) => {
-397 |     return await ctx.db
-398 |       .query("members")
-399 |       .withIndex("by_workspace_id_and_user_id", (q) =>
-400 |         q.eq("workspaceId", workspaceId).eq("userId", userId)
-401 |       )
-402 |       .first();
-403 |   },
-404 | });
-405 | 
-406 | export const generateSummary = action({
-407 |   args: {
-408 |     channelId: v.id("channels"),
-409 |     threadId: v.optional(v.id("messages")),
-410 |     type: v.union(v.literal("channel"), v.literal("dm"), v.literal("thread")),
-411 |   },
-412 |   handler: async (ctx, { channelId, threadId, type }) => {
-413 |     const userId = await auth.getUserId(ctx);
-414 |     if (!userId) throw new Error("Unauthorized");
+328 |     // 6. Queue AI response.
+329 |     await ctx.db.insert("aiTasks",   {
+330 |       channelId,
+331 |       userId: otherMember.userId,
+332 |       messageId,
+333 |       status: "pending",
+334 |       createdAt: Date.now(),
+335 |     });
+336 | 
+337 |     return {
+338 |       channelId,
+339 |       messageId,
+340 |       otherUserId: otherMember.userId,
+341 |       status: "Test message sent and AI task queued"
+342 |     };
+343 |   },
+344 | });
+345 | 
+346 | // Debug query to check pending tasks
+347 | export const checkPendingTasks = query({
+348 |   args: {},
+349 |   handler: async (ctx: QueryCtx) => {
+350 |     const tasks = await ctx.db
+351 |       .query("aiTasks")
+352 |       .filter((q: any) => q.eq(q.field("status"), "pending"))
+353 |       .collect();
+354 |     
+355 |     return tasks.map((task: Doc<"aiTasks">) => ({
+356 |       ...task,
+357 |       createdAt: new Date(task.createdAt).toISOString()
+358 |     }));
+359 |   },
+360 | });
+361 | 
+362 | // Debug query to check full flow
+363 | export const debugFullFlow = query({
+364 |   args: {},
+365 |   handler: async (ctx: QueryCtx) => {
+366 |     const userId = await auth.getUserId(ctx);
+367 |     if (!userId) return { 
+368 |       tasks: [],
+369 |       messages: [],
+370 |       status: "error: not authenticated" 
+371 |     };
+372 | 
+373 |     try {
+374 |       // 1. Check for pending tasks
+375 |       const tasks = await ctx.db
+376 |         .query("aiTasks")
+377 |         .order("desc")
+378 |         .take(5);
+379 | 
+380 |       const formattedTasks = tasks.map((t: Doc<"aiTasks">) => ({
+381 |         ...t,
+382 |         createdAt: new Date(t.createdAt).toISOString(),
+383 |         completedAt: t.completedAt ? new Date(t.completedAt).toISOString() : undefined
+384 |       }));
+385 | 
+386 |       // 2. Get messages from the most recent task's channel
+387 |       let formattedMessages: Array<{
+388 |         _id: Id<"messages">;
+389 |         userId: Id<"users">;
+390 |         channelId: Id<"channels">;
+391 |         text: string;
+392 |         createdAt: string;
+393 |         userName: string;
+394 |         isAIResponse: boolean;
+395 |         parentMessageId?: Id<"messages">;
+396 |       }> = [];
+397 |       if (tasks.length > 0) {
+398 |         const latestTask = tasks[0];
+399 |         const messages = await ctx.db
+400 |           .query("messages")
+401 |           .withIndex("by_channel_id", (q: any) => q.eq("channelId", latestTask.channelId))
+402 |           .order("desc")
+403 |           .take(5);
+404 | 
+405 |         formattedMessages = await Promise.all(messages.map(async (msg: Doc<"messages">) => {
+406 |           const user = await ctx.db.get(msg.userId);
+407 |           return {
+408 |             ...msg,
+409 |             userName: user?.name || "Unknown",
+410 |             createdAt: new Date(msg.createdAt).toISOString(),
+411 |             isAIResponse: !!msg.isAI
+412 |           };
+413 |         }));
+414 |       }
 415 | 
-416 |     // Get channel using internal query
-417 |     const channel = await ctx.runQuery(internal.ai.getChannel, { channelId });
-418 |     if (!channel) throw new Error("Channel not found");
-419 | 
-420 |     // Verify workspace membership using internal query
-421 |     const member = await ctx.runQuery(internal.ai.checkMembership, {
-422 |       workspaceId: channel.workspaceId,
-423 |       userId
-424 |     });
-425 |     if (!member) throw new Error("Not a member of this workspace");
-426 | 
-427 |     // Fetch messages based on type
-428 |     let messages;
-429 |     if (type === "thread" && threadId) {
-430 |       messages = await ctx.runQuery(api.messages.listThread, { parentMessageId: threadId });
-431 |       
-432 |       // Add the parent message
-433 |       const parentMessage = await ctx.runQuery(api.messages.getById, { messageId: threadId });
-434 |       if (parentMessage) {
-435 |         messages = [parentMessage, ...messages];
-436 |       }
-437 |     } else {
-438 |       messages = await ctx.runQuery(api.messages.listRecent, { 
-439 |         channelId,
-440 |         hours: 24
-441 |       });
-442 |     }
-443 | 
-444 |     if (!messages || messages.length === 0) {
-445 |       return "No messages found to summarize.";
-446 |     }
-447 | 
-448 |     // Sort messages by timestamp
-449 |     messages.sort((a, b) => a.createdAt - b.createdAt);
-450 | 
-451 |     // Build conversation context
-452 |     const conversationContext = messages
-453 |       .map((msg) => `${msg.userName || 'Unknown'}: ${msg.text}`)
-454 |       .join("\n");
-455 | 
-456 |     // Generate summary prompt based on type
-457 |     let prompt = "";
-458 |     if (type === "channel") {
-459 |       prompt = `Here's the last 24 hours of channel messages:\n\n${conversationContext}\n\nProvide a clear and concise summary of the key discussions and decisions from these channel messages.`;
-460 |     } else if (type === "dm") {
-461 |       prompt = `Here's the last 24 hours of direct messages:\n\n${conversationContext}\n\nProvide a clear and concise summary of the key points from this conversation.`;
-462 |     } else {
-463 |       prompt = `Here's a thread discussion:\n\n${conversationContext}\n\nProvide a clear and concise summary of this thread's discussion and any conclusions reached.`;
-464 |     }
-465 | 
-466 |     // Call OpenAI for summary
-467 |     const apiKey = process.env.OPENAI_API_KEY;
-468 |     if (!apiKey) {
-469 |       throw new Error("OPENAI_API_KEY environment variable not set");
-470 |     }
+416 |       return {
+417 |         tasks: formattedTasks,
+418 |         messages: formattedMessages,
+419 |         status: "success"
+420 |       };
+421 |     } catch (error: any) {
+422 |       return {
+423 |         tasks: [],
+424 |         messages: [],
+425 |         status: `error: ${error.message}`
+426 |       };
+427 |     }
+428 |   }
+429 | });
+430 | 
+431 | // Internal query to get channel
+432 | export const getChannel = internalQuery({
+433 |   args: { channelId: v.id("channels") },
+434 |   handler: async (ctx: QueryCtx, { channelId }) => {
+435 |     return await ctx.db
+436 |       .query("channels")
+437 |       .filter((q) => q.eq(q.field("_id"), channelId))
+438 |       .first();
+439 |   },
+440 | });
+441 | 
+442 | // Internal query to check workspace membership
+443 | export const checkMembership = internalQuery({
+444 |   args: { 
+445 |     workspaceId: v.id("workspaces"),
+446 |     userId: v.id("users")
+447 |   },
+448 |   handler: async (ctx: QueryCtx, { workspaceId, userId }) => {
+449 |     return await ctx.db
+450 |       .query("members")
+451 |       .withIndex("by_workspace_id_and_user_id", (q) =>
+452 |         q.eq("workspaceId", workspaceId).eq("userId", userId)
+453 |       )
+454 |       .first();
+455 |   },
+456 | });
+457 | 
+458 | export const generateSummary = action({
+459 |   args: {
+460 |     channelId: v.id("channels"),
+461 |     threadId: v.optional(v.id("messages")),
+462 |     type: v.union(v.literal("channel"), v.literal("dm"), v.literal("thread")),
+463 |   },
+464 |   handler: async (ctx, { channelId, threadId, type }) => {
+465 |     const userId = await auth.getUserId(ctx);
+466 |     if (!userId) throw new Error("Unauthorized");
+467 | 
+468 |     // Get channel using internal query
+469 |     const channel = await ctx.runQuery(internal.ai.getChannel, { channelId });
+470 |     if (!channel) throw new Error("Channel not found");
 471 | 
-472 |     const response = await fetch("https://api.openai.com/v1/chat/completions", {
-473 |       method: "POST",
-474 |       headers: {
-475 |         "Content-Type": "application/json",
-476 |         Authorization: `Bearer ${apiKey}`,
-477 |       },
-478 |       body: JSON.stringify({
-479 |         model: "gpt-4o-mini",
-480 |         messages: [
-481 |           {
-482 |             role: "system",
-483 |             content: "You are a helpful assistant that provides clear, concise summaries of chat conversations.",
-484 |           },
-485 |           {
-486 |             role: "user",
-487 |             content: prompt,
-488 |           },
-489 |         ],
-490 |         temperature: 0.7,
-491 |       }),
-492 |     });
-493 | 
-494 |     if (!response.ok) {
-495 |       throw new Error(`OpenAI API error: ${response.statusText}`);
-496 |     }
-497 | 
-498 |     const result = await response.json();
-499 |     return result.choices[0].message.content;
-500 |   },
-501 | });
+472 |     // Verify workspace membership using internal query
+473 |     const member = await ctx.runQuery(internal.ai.checkMembership, {
+474 |       workspaceId: channel.workspaceId,
+475 |       userId
+476 |     });
+477 |     if (!member) throw new Error("Not a member of this workspace");
+478 | 
+479 |     // Fetch messages based on type
+480 |     let messages;
+481 |     if (type === "thread" && threadId) {
+482 |       messages = await ctx.runQuery(api.messages.listThread, { parentMessageId: threadId });
+483 |       
+484 |       // Add the parent message
+485 |       const parentMessage = await ctx.runQuery(api.messages.getById, { messageId: threadId });
+486 |       if (parentMessage) {
+487 |         messages = [parentMessage, ...messages];
+488 |       }
+489 |     } else {
+490 |       messages = await ctx.runQuery(api.messages.listRecent, { 
+491 |         channelId,
+492 |         hours: 24
+493 |       });
+494 |     }
+495 | 
+496 |     if (!messages || messages.length === 0) {
+497 |       return "No messages found to summarize.";
+498 |     }
+499 | 
+500 |     // Sort messages by timestamp
+501 |     messages.sort((a, b) => a.createdAt - b.createdAt);
+502 | 
+503 |     // Build conversation context
+504 |     const conversationContext = messages
+505 |       .map((msg) => `${msg.userName || 'Unknown'}: ${msg.text}`)
+506 |       .join("\n");
+507 | 
+508 |     // Generate summary prompt based on type
+509 |     let prompt = "";
+510 |     if (type === "channel") {
+511 |       prompt = `Here's the last 24 hours of channel messages:\n\n${conversationContext}\n\nProvide a clear and concise summary of the key discussions and decisions from these channel messages.`;
+512 |     } else if (type === "dm") {
+513 |       prompt = `Here's the last 24 hours of direct messages:\n\n${conversationContext}\n\nProvide a clear and concise summary of the key points from this conversation.`;
+514 |     } else {
+515 |       prompt = `Here's a thread discussion:\n\n${conversationContext}\n\nProvide a clear and concise summary of this thread's discussion and any conclusions reached.`;
+516 |     }
+517 | 
+518 |     // Call OpenAI for summary
+519 |     const apiKey = process.env.OPENAI_API_KEY;
+520 |     if (!apiKey) {
+521 |       throw new Error("OPENAI_API_KEY environment variable not set");
+522 |     }
+523 | 
+524 |     const response = await fetch("https://api.openai.com/v1/chat/completions", {
+525 |       method: "POST",
+526 |       headers: {
+527 |         "Content-Type": "application/json",
+528 |         Authorization: `Bearer ${apiKey}`,
+529 |       },
+530 |       body: JSON.stringify({
+531 |         model: "gpt-4o-mini",
+532 |         messages: [
+533 |           {
+534 |             role: "system",
+535 |             content: "You are a helpful assistant that provides clear, concise summaries of chat conversations.",
+536 |           },
+537 |           {
+538 |             role: "user",
+539 |             content: prompt,
+540 |           },
+541 |         ],
+542 |         temperature: 0.7,
+543 |       }),
+544 |     });
+545 | 
+546 |     if (!response.ok) {
+547 |       throw new Error(`OpenAI API error: ${response.statusText}`);
+548 |     }
+549 | 
+550 |     const result = await response.json();
+551 |     return result.choices[0].message.content;
+552 |   },
+553 | });
 ```
 
 convex/auth.config.ts
@@ -1336,31 +1388,38 @@ convex/embeddings.ts
 102 |   args: {
 103 |     text: v.string(),
 104 |     limit: v.optional(v.number()),
-105 |   },
-106 |   handler: async (ctx, { text, limit = 4 }): Promise<SearchResult[]> => {
-107 |     // Generate embedding for the search text
-108 |     const vector = await ctx.runAction(internal.embeddings.generateEmbedding, {
-109 |       text,
-110 |     });
-111 | 
-112 |     // Use vector index to find similar messages
-113 |     const results = await ctx.vectorSearch("messageEmbeddings", "by_vector", {
-114 |       vector,
-115 |       limit,
-116 |     });
-117 | 
-118 |     // Fetch messages using internal query
-119 |     const messages = await ctx.runQuery(internal.embeddings.fetchMessages, {
-120 |       ids: results.map(r => r._id),
-121 |     });
-122 | 
-123 |     // Add scores to messages
-124 |     return messages.map((msg, i) => ({
-125 |       ...msg,
-126 |       _score: results[i]._score,
-127 |     }));
-128 |   },
-129 | }); 
+105 |     userId: v.id("users"),
+106 |   },
+107 |   handler: async (ctx, { text, limit = 4, userId }): Promise<SearchResult[]> => {
+108 |     // Generate embedding for the search text
+109 |     const vector = await ctx.runAction(internal.embeddings.generateEmbedding, {
+110 |       text,
+111 |     });
+112 | 
+113 |     // Use vector index to find similar messages
+114 |     const results = await ctx.vectorSearch("messageEmbeddings", "by_vector", {
+115 |       vector,
+116 |       limit: limit * 3, // Get more results since we'll filter
+117 |     });
+118 | 
+119 |     // Fetch messages using internal query
+120 |     const messages = await ctx.runQuery(internal.embeddings.fetchMessages, {
+121 |       ids: results.map(r => r._id),
+122 |     });
+123 | 
+124 |     // Filter to only messages from specified user and take requested limit
+125 |     const userMessages = messages
+126 |       .filter(msg => msg.userId === userId)
+127 |       .slice(0, limit);
+128 | 
+129 |     // Map results scores to filtered messages
+130 |     const resultScores = new Map(results.map(r => [r._id.toString(), r._score]));
+131 |     return userMessages.map(msg => ({
+132 |       ...msg,
+133 |       _score: resultScores.get(msg._id.toString()) ?? 0,
+134 |     }));
+135 |   },
+136 | }); 
 ```
 
 convex/http.ts
