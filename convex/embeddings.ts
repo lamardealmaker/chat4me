@@ -168,6 +168,7 @@ export const findSimilarMessages = action({
 
     // Map results scores to filtered messages
     const resultScores = new Map(results.map(r => [r._id.toString(), r._score]));
+    
     return userMessages.map(msg => ({
       ...msg,
       _score: resultScores.get(msg._id.toString()) ?? 0,
@@ -487,5 +488,12 @@ export const getEmbeddingAndMessage = internalQuery({
     if (!message) return null;
     
     return { message, embedding };
+  },
+});
+
+export const getChannel = internalQuery({
+  args: { channelId: v.id("channels") },
+  handler: async (ctx, { channelId }) => {
+    return await ctx.db.get(channelId);
   },
 }); 

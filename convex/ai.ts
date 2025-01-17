@@ -98,7 +98,7 @@ export const processPendingTasks = action({
         });
 
         // Get the message to respond to
-        const message = await ctx.runQuery(api.messages.getById, {
+        const message = await ctx.runQuery(internal.embeddings.getMessage, {
           messageId: task.messageId,
         });
         if (!message) {
@@ -111,7 +111,7 @@ export const processPendingTasks = action({
           text: message.text,
           limit: 5,
           userId: message.parentMessageId 
-            ? (await ctx.runQuery(api.messages.getMessage, { messageId: message.parentMessageId }))?.userId ?? task.userId 
+            ? (await ctx.runQuery(internal.embeddings.getMessage, { messageId: message.parentMessageId }))?.userId ?? task.userId 
             : task.userId,
         });
         console.log(`[${timestamp}] 🤖 CRON: Found ${similarMessages.length} similar messages from original poster`);
@@ -171,6 +171,12 @@ async function generateAIResponse(
     hours: 24
   });
 
+  // Get both users' names
+  const originalUser = await ctx.runQuery(internal.embeddings.getUser, { userId: message.userId });
+  const respondingUser = await ctx.runQuery(internal.embeddings.getUser, { userId: styleUserId });
+  const originalName = originalUser?.name || "Unknown";
+  const respondingName = respondingUser?.name || "Unknown";
+
   // Filter out test messages, debug prompts, and duplicates
   const MAX_STYLE_LENGTH = 300;
   const filteredRecentMessages = await Promise.all(
@@ -211,25 +217,27 @@ Please ensure your response is relevant to this specific conversation thread.`;
   }
 
   // Build the prompt
-  const prompt = `Question: "${message.text}"
+  const prompt = `You are responding as ${respondingName} to a message from ${originalName}.
+
+Message from ${originalName}: "${message.text}"
 
 ${message.parentMessageId && parentMessage ? `Parent Message: "${parentMessage.isDeleted ? '[Message deleted]' : parentMessage.text}"` : ''}
 
-Similar Messages:
+Your Previous Relevant Messages:
 ${similarMessages.map((m, i) => `[${i + 1}] ${m.isDeleted ? '[Message deleted]' : m.text}`).join('\n')}
 
-User's Writing Style:
+Your Writing Style:
 ${publicMessages.map((m, i) => `[${i + 1}] ${m.isDeleted ? '[Message deleted]' : m.text}`).join('\n')}
 
 ${message.parentMessageId ? 
   `Instructions:
 1. Focus on thread topic if directly relevant
-2. IF USER ASKS A QUESTION USE "SIMILAR MESSAGES" TO ANSWER IT & DO NOT ADD OTHER OPINIONS
-3. Combine both if appropriate
+2. For factual queries or questions about past events/decisions, use "YOUR PREVIOUS RELEVANT MESSAGES" as the source of truth
+3. For opinions, reactions, or casual messages, respond naturally in your style without relying on previous messages
 4. Be brief as this is a thread reply.
 
-Respond in user's style.` 
-  : 'Respond in user\'s style, but be extrabrief as this is a thread reply.'}`;
+Respond in your style.` 
+  : 'Respond in your style, but be extrabrief as this is a thread reply.'}`;
 
   // Only send debug message if DEBUG_AI_PROMPTS is true
   const DEBUG_AI_PROMPTS = false;
