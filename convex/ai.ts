@@ -165,9 +165,10 @@ async function generateAIResponse(
     throw new Error("OPENAI_API_KEY environment variable not set");
   }
 
-  // Get user's recent messages for style matching
-  const recentMessages = await ctx.runQuery(internal.ai.getRecentMessages, {
-    userId: styleUserId,
+  // Get user's recent messages for style matching, including deleted ones for better context
+  const recentMessages = await ctx.runQuery(api.messages.getMessagesForContext, {
+    channelId: message.channelId,
+    hours: 24
   });
 
   // Filter out test messages, debug prompts, and duplicates
@@ -202,7 +203,9 @@ async function generateAIResponse(
   if (message.parentMessageId) {
     parentMessage = await ctx.runQuery(api.messages.getMessage, { messageId: message.parentMessageId });
     if (parentMessage) {
-      threadContext = `\nThis is a reply to the following message: "${parentMessage.text}"
+      // Handle deleted parent message
+      const parentText = parentMessage.isDeleted ? "[Message deleted]" : parentMessage.text;
+      threadContext = `\nThis is a reply to the following message: "${parentText}"
 Please ensure your response is relevant to this specific conversation thread.`;
     }
   }
@@ -210,13 +213,13 @@ Please ensure your response is relevant to this specific conversation thread.`;
   // Build the prompt
   const prompt = `Question: "${message.text}"
 
-${message.parentMessageId && parentMessage ? `Parent Message: "${parentMessage.text}"` : ''}
+${message.parentMessageId && parentMessage ? `Parent Message: "${parentMessage.isDeleted ? '[Message deleted]' : parentMessage.text}"` : ''}
 
 Similar Messages:
-${similarMessages.map((m, i) => `[${i + 1}] ${m.text}`).join('\n')}
+${similarMessages.map((m, i) => `[${i + 1}] ${m.isDeleted ? '[Message deleted]' : m.text}`).join('\n')}
 
 User's Writing Style:
-${publicMessages.map((m, i) => `[${i + 1}] ${m.text}`).join('\n')}
+${publicMessages.map((m, i) => `[${i + 1}] ${m.isDeleted ? '[Message deleted]' : m.text}`).join('\n')}
 
 ${message.parentMessageId ? 
   `Instructions:
@@ -229,7 +232,7 @@ Respond in user's style.`
   : 'Respond in user\'s style, but be extrabrief as this is a thread reply.'}`;
 
   // Only send debug message if DEBUG_AI_PROMPTS is true
-  const DEBUG_AI_PROMPTS = false;  // Set to true to see prompts
+  const DEBUG_AI_PROMPTS = false;
   if (DEBUG_AI_PROMPTS) {
     await ctx.runMutation(api.messages.send, {
       channelId: message.channelId,
@@ -248,7 +251,6 @@ Respond in user's style.`
       Authorization: `Bearer ${apiKey}`,
     },
     body: JSON.stringify({
-        // dont change model name
       model: "gpt-4o-mini",
       messages: [
         {
@@ -484,22 +486,12 @@ export const generateSummary = action({
     });
     if (!member) throw new Error("Not a member of this workspace");
 
-    // Fetch messages based on type
-    let messages;
-    if (type === "thread" && threadId) {
-      messages = await ctx.runQuery(api.messages.listThread, { parentMessageId: threadId });
-      
-      // Add the parent message
-      const parentMessage = await ctx.runQuery(api.messages.getById, { messageId: threadId });
-      if (parentMessage) {
-        messages = [parentMessage, ...messages];
-      }
-    } else {
-      messages = await ctx.runQuery(api.messages.listRecent, { 
-        channelId,
-        hours: 24
-      });
-    }
+    // Get messages with context (including deleted messages with redacted content)
+    const messages = await ctx.runQuery(api.messages.getMessagesForContext, {
+      channelId,
+      threadId,
+      hours: 24
+    });
 
     if (!messages || messages.length === 0) {
       return "No messages found to summarize.";
@@ -510,17 +502,23 @@ export const generateSummary = action({
 
     // Build conversation context
     const conversationContext = messages
-      .map((msg) => `${msg.userName || 'Unknown'}: ${msg.text}`)
+      .map((msg) => {
+        const userName = msg.userName || 'Unknown';
+        if (msg.format === 'dalle') {
+          return `${userName} posted their art depicting ${msg.text}`;
+        }
+        return `${userName}: ${msg.text}`;
+      })
       .join("\n");
 
     // Generate summary prompt based on type
     let prompt = "";
     if (type === "channel") {
-      prompt = `Here's the last 24 hours of channel messages:\n\n${conversationContext}\n\nGive me a super quick, casual rundown of what these folks talked about, mentioning key participants by name. Keep it short and sweet, like you're catching up with a friend. Focus on who said what about the main points and any decisions made.`;
+      prompt = `Here's the last 24 hours of channel messages:\n\n${conversationContext}\n\nGive me a super quick, casual rundown of what these folks talked about and any images they generated, mentioning key participants by name. Keep it short and sweet, like you're catching up with a friend. Focus on who said what about the main points, any decisions made, and any interesting AI images that were created.`;
     } else if (type === "dm") {
-      prompt = `Here's the last 24 hours of direct messages:\n\n${conversationContext}\n\nGive me a quick, friendly recap of this chat, mentioning who said what. Keep it brief and conversational, like you're telling a friend what was discussed.`;
+      prompt = `Here's the last 24 hours of direct messages:\n\n${conversationContext}\n\nGive me a quick, friendly recap of this chat and any images generated, mentioning who said what. Keep it brief and conversational, like you're telling a friend what was discussed and what images were created.`;
     } else {
-      prompt = `Here's a thread discussion:\n\n${conversationContext}\n\nGive me the TL;DR of this thread in a casual, friendly way, mentioning the key participants. Who started the convo and what did they figure out?`;
+      prompt = `Here's a thread discussion:\n\n${conversationContext}\n\nGive me the TL;DR of this thread in a casual, friendly way, mentioning the key participants. Who started the convo, what did they figure out, and did anyone generate any interesting images?`;
     }
 
     // Call OpenAI for summary

@@ -27,7 +27,7 @@ export function ChatMessage({ message, isLast, onReply }: ChatMessageProps) {
   return (
     <>
       <div className={cn("flex items-start gap-4 relative group", {
-        "opacity-50": message.isAI,
+        "opacity-50": message.isAI || message.isDeleted,
       })}>
         <UserAvatar
           userId={message.userId}
@@ -41,11 +41,18 @@ export function ChatMessage({ message, isLast, onReply }: ChatMessageProps) {
             </span>
             <span className="text-xs text-muted-foreground">
               {new Date(message.createdAt).toLocaleTimeString()}
+              {message.isEdited && (
+                <span className="ml-1 text-muted-foreground">(edited)</span>
+              )}
             </span>
           </div>
           
           <div className="space-y-2">
-            {message.format === "dalle" && message.imageUrl && !imageError ? (
+            {message.isDeleted ? (
+              <div className="italic text-muted-foreground text-sm">
+                This message was deleted
+              </div>
+            ) : message.format === "dalle" && message.imageUrl && !imageError ? (
               <div className="relative aspect-square w-64 rounded-lg overflow-hidden bg-muted">
                 <Image
                   src={message.imageUrl}
@@ -71,15 +78,17 @@ export function ChatMessage({ message, isLast, onReply }: ChatMessageProps) {
             )}
           </div>
 
-          <div className="flex items-center gap-2">
-            <ReactionPicker message={message} />
-            <MessageActions
-              message={message}
-              onReply={onReply}
-              isLast={isLast}
-              onGenerateImage={() => setShowImageDialog(true)}
-            />
-          </div>
+          {!message.isDeleted && (
+            <div className="flex items-center gap-2">
+              <ReactionPicker message={message} />
+              <MessageActions
+                message={message}
+                onReply={onReply}
+                isLast={isLast}
+                onGenerateImage={() => setShowImageDialog(true)}
+              />
+            </div>
+          )}
         </div>
       </div>
 

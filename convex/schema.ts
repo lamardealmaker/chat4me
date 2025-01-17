@@ -56,6 +56,11 @@ const schema = defineSchema({
     createdAt: v.number(),
     parentMessageId: v.optional(v.id("messages")),
     isAI: v.optional(v.boolean()),
+    isDeleted: v.optional(v.boolean()),
+    deletedAt: v.optional(v.number()),
+    deletedBy: v.optional(v.id("users")),
+    isEdited: v.optional(v.boolean()),
+    editedAt: v.optional(v.number()),
   })
     .index("by_channel_id", ["channelId"])
     .index("by_user_id", ["userId"])

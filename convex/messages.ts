@@ -119,7 +119,15 @@ export const list = query({
     const messages = await ctx.db
       .query("messages")
       .withIndex("by_channel_id", (q) => q.eq("channelId", args.channelId))
-      .filter((q) => q.eq(q.field("parentMessageId"), undefined))
+      .filter((q) => 
+        q.and(
+          q.eq(q.field("parentMessageId"), undefined),
+          q.or(
+            q.eq(q.field("isDeleted"), false),
+            q.eq(q.field("isDeleted"), undefined)
+          )
+        )
+      )
       .collect();
 
     const results = [];
@@ -188,6 +196,12 @@ export const listThread = query({
     const replies = await ctx.db
       .query("messages")
       .withIndex("by_parent_message_id", (q) => q.eq("parentMessageId", parentMessageId))
+      .filter((q) => 
+        q.or(
+          q.eq(q.field("isDeleted"), false),
+          q.eq(q.field("isDeleted"), undefined)
+        )
+      )
       .order("asc")
       .collect();
 
@@ -357,10 +371,16 @@ export const getReplyCount = query({
       .first();
     if (!member) return 0;
 
-    // Count replies using the index
+    // Count non-deleted replies using the index
     const replies = await ctx.db
       .query("messages")
       .withIndex("by_parent_message_id", (q) => q.eq("parentMessageId", messageId))
+      .filter((q) => 
+        q.or(
+          q.eq(q.field("isDeleted"), false),
+          q.eq(q.field("isDeleted"), undefined)
+        )
+      )
       .collect();
     
     return replies.length;
@@ -377,14 +397,26 @@ export const getMessage = query({
 export const listRecent = query({
   args: { 
     channelId: v.id("channels"),
-    hours: v.number()
+    hours: v.number(),
+    includeDeleted: v.optional(v.boolean())
   },
-  handler: async (ctx, { channelId, hours }) => {
+  handler: async (ctx, { channelId, hours, includeDeleted }) => {
     const cutoffTime = Date.now() - hours * 60 * 60 * 1000;
     const messages = await ctx.db
       .query("messages")
       .withIndex("by_channel_id", (q) => q.eq("channelId", channelId))
-      .filter((q) => q.gt(q.field("createdAt"), cutoffTime))
+      .filter((q) => 
+        q.and(
+          q.gt(q.field("createdAt"), cutoffTime),
+          q.or(
+            includeDeleted === true,
+            q.or(
+              q.eq(q.field("isDeleted"), false),
+              q.eq(q.field("isDeleted"), undefined)
+            )
+          )
+        )
+      )
       .collect();
 
     const results = [];
@@ -392,7 +424,8 @@ export const listRecent = query({
       const userDoc = await ctx.db.get(msg.userId);
       results.push({
         ...msg,
-        userName: userDoc?.name || "Unknown"
+        userName: userDoc?.name || "Unknown",
+        text: msg.isDeleted && includeDeleted ? "[Message deleted]" : msg.text
       });
     }
 
@@ -483,9 +516,121 @@ export const search = query({
       .filter((q) => 
         q.and(
           q.lt(q.field("createdAt"), startTime),
-          q.or(...channels.map(channel => q.eq(q.field("channelId"), channel._id)))
+          q.or(...channels.map(channel => q.eq(q.field("channelId"), channel._id))),
+          q.or(
+            q.eq(q.field("isDeleted"), false),
+            q.eq(q.field("isDeleted"), undefined)
+          )
         )
       )
       .take(limit);
   },
+});
+
+export const deleteMessage = mutation({
+  args: { messageId: v.id("messages") },
+  handler: async (ctx, args) => {
+    const userId = await auth.getUserId(ctx);
+    if (!userId) throw new Error("Unauthorized");
+    
+    const message = await ctx.db.get(args.messageId);
+    if (!message) throw new Error("Message not found");
+    if (message.userId !== userId) throw new Error("Cannot delete another user's message");
+    
+    return await ctx.db.patch(args.messageId, {
+      isDeleted: true,
+      deletedAt: Date.now(),
+      deletedBy: userId
+    });
+  }
+});
+
+export const updateMessage = mutation({
+  args: { 
+    messageId: v.id("messages"),
+    text: v.string()
+  },
+  handler: async (ctx, args) => {
+    const userId = await auth.getUserId(ctx);
+    if (!userId) throw new Error("Unauthorized");
+    
+    const message = await ctx.db.get(args.messageId);
+    if (!message) throw new Error("Message not found");
+    if (message.userId !== userId) throw new Error("Cannot edit another user's message");
+    if (message.isDeleted) throw new Error("Cannot edit deleted message");
+    
+    return await ctx.db.patch(args.messageId, {
+      text: args.text,
+      isEdited: true,
+      editedAt: Date.now()
+    });
+  }
+});
+
+/**
+ * getMessagesForContext - Get messages with context for AI and summaries
+ * This includes deleted messages with redacted content to maintain conversation flow
+ */
+export const getMessagesForContext = query({
+  args: { 
+    channelId: v.id("channels"),
+    threadId: v.optional(v.id("messages")),
+    hours: v.optional(v.number())
+  },
+  handler: async (ctx, { channelId, threadId, hours }) => {
+    const userId = await auth.getUserId(ctx);
+    if (!userId) return [];
+
+    const channel = await ctx.db.get(channelId);
+    if (!channel) return [];
+
+    // Check membership
+    const member = await ctx.db
+      .query("members")
+      .withIndex("by_workspace_id_and_user_id", (q) =>
+        q.eq("workspaceId", channel.workspaceId).eq("userId", userId)
+      )
+      .first();
+    if (!member) return [];
+
+    let messages;
+    if (threadId) {
+      // Get thread messages
+      messages = await ctx.db
+        .query("messages")
+        .withIndex("by_parent_message_id", (q) => q.eq("parentMessageId", threadId))
+        .order("asc")
+        .collect();
+      
+      // Add the parent message
+      const parentMessage = await ctx.db.get(threadId);
+      if (parentMessage) {
+        messages = [parentMessage, ...messages];
+      }
+    } else {
+      // Get channel messages
+      const cutoffTime = hours ? Date.now() - hours * 60 * 60 * 1000 : 0;
+      messages = await ctx.db
+        .query("messages")
+        .withIndex("by_channel_id", (q) => q.eq("channelId", channelId))
+        .filter((q) => hours ? q.gt(q.field("createdAt"), cutoffTime) : q.gt(q.field("createdAt"), 0))
+        .order("asc")
+        .collect();
+    }
+
+    // Process messages with user info and handle deleted content
+    const results = [];
+    for (const msg of messages) {
+      const userDoc = await ctx.db.get(msg.userId);
+      results.push({
+        ...msg,
+        userName: userDoc?.name || "Unknown",
+        // Redact content of deleted messages but keep structure
+        text: msg.isDeleted ? "[Message deleted]" : msg.text,
+        formattedText: msg.isDeleted ? "[Message deleted]" : msg.formattedText
+      });
+    }
+
+    return results;
+  }
 });

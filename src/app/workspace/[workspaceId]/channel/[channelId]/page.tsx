@@ -24,6 +24,7 @@ import { SummaryDropdown } from "@/components/ui/summary-dropdown";
 import { UserActionMenu } from "@/components/ui/user-action-menu";
 import { ImageGenerationDialog } from "../../../../../components/ui/image-generation-dialog";
 import Image from "next/image";
+import { MessageActions } from "@/components/ui/message-actions";
 
 const EMOJI_MAP: Record<string, string> = {
   thumbs_up: "👍",
@@ -170,12 +171,7 @@ export default function ChannelPage() {
     
     if (!isDM) {
       return (
-        <div 
-          ref={el => {
-            if (el) messageRefs.current[msg._id] = el;
-          }}
-          className="border border-emerald-100 p-3 rounded-lg hover:bg-emerald-50/50 transition bg-white shadow-sm"
-        >
+        <div className="border border-emerald-100 p-3 rounded-lg hover:bg-emerald-50/50 transition bg-white shadow-sm relative group">
           <div className="text-sm text-emerald-800 flex justify-between items-center mb-2">
             <div className="flex items-center gap-2">
               <UserActionMenu 
@@ -217,6 +213,10 @@ export default function ChannelPage() {
               >
                 Reply
               </Button>
+              <MessageActions
+                message={msg}
+                onReply={() => setSelectedThread(msg._id)}
+              />
             </div>
           </div>
           {msg.format === "dalle" && msg.imageUrl ? (
@@ -263,7 +263,7 @@ export default function ChannelPage() {
     // DM Message Style
     return (
       <div className={cn(
-        "flex flex-col max-w-[60%] space-y-1 mb-4",
+        "flex flex-col max-w-[60%] space-y-1 mb-4 relative group",
         isSentByMe ? "ml-auto" : ""
       )}>
         <div className={cn(
@@ -279,6 +279,10 @@ export default function ChannelPage() {
               <span className="opacity-75">AI</span>
             </span>
           )}
+          <MessageActions
+            message={msg}
+            onReply={() => setSelectedThread(msg._id)}
+          />
         </div>
         <div className={cn(
           "px-3.5 py-2 rounded-[18px] shadow-sm",

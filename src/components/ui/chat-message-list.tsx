@@ -2,6 +2,8 @@ import * as React from "react";
 import { ArrowDown } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { useAutoScroll } from "@/hooks/use-auto-scroll";
+import { MessageEditDialog } from "./message-edit-dialog";
+import { Pencil } from "lucide-react";
 
 interface ChatMessageListProps extends React.HTMLAttributes<HTMLDivElement> {
   smooth?: boolean;
@@ -19,6 +21,8 @@ const ChatMessageList = React.forwardRef<HTMLDivElement, ChatMessageListProps>(
       smooth,
       content: children,
     });
+
+    const [selectedMessageId, setSelectedMessageId] = React.useState<Id<"messages"> | null>(null);
 
     return (
       <div className="relative w-full h-full">

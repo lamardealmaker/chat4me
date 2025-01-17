@@ -14,6 +14,7 @@ import { SummaryDropdown } from "@/components/ui/summary-dropdown";
 import { ImageGenerationDialog } from "@/components/ui/image-generation-dialog";
 import Image from "next/image";
 import { useSendMessage } from "@/app/features/messages/api/use-send-message";
+import { MessageActions } from "@/components/ui/message-actions";
 
 const EMOJI_MAP: Record<string, string> = {
   thumbs_up: "👍",
@@ -111,7 +112,7 @@ export function ThreadPanel({
       ref={el => {
         if (el) messageRefs.current[message._id] = el;
       }}
-      className="border border-emerald-100 p-3 rounded-lg hover:bg-emerald-50/50 transition bg-white shadow-sm"
+      className="border border-emerald-100 p-3 rounded-lg hover:bg-emerald-50/50 transition bg-white shadow-sm relative group"
     >
       <div className="flex items-center gap-2 mb-2">
         <div className="flex items-center gap-2">
@@ -131,6 +132,7 @@ export function ThreadPanel({
             {new Date(message.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
           </span>
         </div>
+        <MessageActions message={message} />
       </div>
       {message.format === "dalle" && message.imageUrl ? (
         <div className="relative aspect-square w-64 rounded-lg overflow-hidden bg-muted">
