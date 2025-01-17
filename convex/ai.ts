@@ -516,11 +516,11 @@ export const generateSummary = action({
     // Generate summary prompt based on type
     let prompt = "";
     if (type === "channel") {
-      prompt = `Here's the last 24 hours of channel messages:\n\n${conversationContext}\n\nProvide a clear and concise summary of the key discussions and decisions from these channel messages.`;
+      prompt = `Here's the last 24 hours of channel messages:\n\n${conversationContext}\n\nGive me a super quick, casual rundown of what these folks talked about. Keep it short and sweet, like you're catching up with a friend. Focus on the main points and any decisions made.`;
     } else if (type === "dm") {
-      prompt = `Here's the last 24 hours of direct messages:\n\n${conversationContext}\n\nProvide a clear and concise summary of the key points from this conversation.`;
+      prompt = `Here's the last 24 hours of direct messages:\n\n${conversationContext}\n\nGive me a quick, friendly recap of this chat. Keep it brief and conversational, like you're telling a friend what was discussed.`;
     } else {
-      prompt = `Here's a thread discussion:\n\n${conversationContext}\n\nProvide a clear and concise summary of this thread's discussion and any conclusions reached.`;
+      prompt = `Here's a thread discussion:\n\n${conversationContext}\n\nGive me the TL;DR of this thread in a casual, friendly way. What's the main convo about and what did they figure out?`;
     }
 
     // Call OpenAI for summary
@@ -540,7 +540,7 @@ export const generateSummary = action({
         messages: [
           {
             role: "system",
-            content: "You are a helpful assistant that provides clear, concise summaries of chat conversations.",
+            content: "You are a friendly assistant that provides super concise, casual summaries of chat conversations. Keep it short, engaging, and use a conversational tone. Avoid formal language and get straight to the point. End your summaries conclusively - do not add questions, suggestions, or phrases like 'let me know if you need more details' or 'want to dig deeper'. Just give the summary and end it there.",
           },
           {
             role: "user",
