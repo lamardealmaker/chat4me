@@ -522,11 +522,11 @@ export const generateSummary = action({
     // Generate summary prompt based on type
     let prompt = "";
     if (type === "channel") {
-      prompt = `Here's the last 24 hours of channel messages:\n\n${conversationContext}\n\nGive me a super quick, casual rundown of what these folks talked about and any images they generated, mentioning key participants by name. Keep it short and sweet, like you're catching up with a friend. Focus on who said what about the main points, any decisions made, and any interesting AI images that were created.`;
+      prompt = `Here's the last 24 hours of channel messages:\n\n${conversationContext}\n\nGive me a super quick, casual rundown of what these folks talked about and any images they generated, mentioning key participants by name. Keep it short and sweet, like you're catching up with a friend. Focus on who said what about the main points, any decisions made, and any interesting AI images that were created (if no images, don't mention it).`;
     } else if (type === "dm") {
-      prompt = `Here's the last 24 hours of direct messages:\n\n${conversationContext}\n\nGive me a quick, friendly recap of this chat and any images generated, mentioning who said what. Keep it brief and conversational, like you're telling a friend what was discussed and what images were created.`;
+      prompt = `Here's the last 24 hours of direct messages:\n\n${conversationContext}\n\nGive me a quick, friendly recap of this chat and any images generated, mentioning who said what. Keep it brief and conversational, like you're telling a friend what was discussed and what images were created (if no images don't mention it).`;
     } else {
-      prompt = `Here's a thread discussion:\n\n${conversationContext}\n\nGive me the TL;DR of this thread in a casual, friendly way, mentioning the key participants. Who started the convo, what did they figure out, and did anyone generate any interesting images?`;
+      prompt = `Here's a thread discussion:\n\n${conversationContext}\n\nGive me the TL;DR of this thread in a casual, friendly way, mentioning the key participants. Who started the convo, what did they figure out, and did anyone generate any interesting images (if no images don't mention it)?`;
     }
 
     // Call OpenAI for summary
