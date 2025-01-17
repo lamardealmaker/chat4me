@@ -105,8 +105,8 @@ export const Sidebar = () => {
           isActive={isInDM}
           onClick={handleDMClick}
         /> 
-        <SidebarButton icon={File} label="Files" isActive={pathname.includes("/files/")} />
-        <SidebarButton icon={MoreHorizontal} label="Settings" isActive={pathname.includes("/settings/")} />
+        {/* <SidebarButton icon={File} label="Files" isActive={pathname.includes("/files/")} />
+        <SidebarButton icon={MoreHorizontal} label="Settings" isActive={pathname.includes("/settings/")} /> */}
         <div className="flex flex-col items-center justify-center mt-auto">
           <UserButton />
         </div>

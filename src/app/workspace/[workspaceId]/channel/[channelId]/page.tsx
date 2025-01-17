@@ -40,7 +40,9 @@ const EMOJI_MAP: Record<string, string> = {
 };
 
 const ChannelHeader = ({ channel }: { channel: any }) => {
-  const isDM = channel.type === "dm";
+  if (!channel) return null;
+  
+  const isDM = channel?.type === "dm";
   const params = useParams();
   const workspaceId = params.workspaceId as Id<"workspaces">;
   const { data: currentUser } = useCurrentUser();
@@ -91,15 +93,14 @@ export default function ChannelPage() {
   // Initialize presence
   usePresence(workspaceId);
 
-  const { data: workspace } = useGetWorkspace({ id: workspaceId });
-  const { data: members } = useGetMembers({ workspaceId });
-  const { data: channels } = useGetChannels({ workspaceId });
+  const { data: workspace, isLoading: isWorkspaceLoading } = useGetWorkspace({ id: workspaceId });
+  const { data: members, isLoading: isMembersLoading } = useGetMembers({ workspaceId });
+  const { data: channels, isLoading: isChannelsLoading } = useGetChannels({ workspaceId });
+  const currentChannel = channels?.find(c => c._id === channelId);
   const messages = useQuery(api.messages.list, { channelId: channelId as Id<"channels"> });
   const sendMessage = useMutation(api.messages.send);
   const toggleReaction = useMutation(api.messages.toggleReaction);
   const { data: currentUser } = useCurrentUser();
-
-  const currentChannel = channels?.find(c => c._id === channelId);
 
   const [text, setText] = useState("");
   const [selectedThread, setSelectedThread] = useState<Id<"messages"> | null>(null);
@@ -401,12 +402,32 @@ export default function ChannelPage() {
     );
   }
 
-  if (messages === undefined || !currentChannel) {
-    return <div className="p-4 text-emerald-600">Loading...</div>;
+  if (isWorkspaceLoading || isMembersLoading || isChannelsLoading) {
+    return (
+      <div className="flex flex-col h-full">
+        <div className="flex items-center px-6 py-4 border-b bg-white shadow-sm">
+          <div className="h-6 w-32 bg-gray-200 animate-pulse rounded" />
+        </div>
+        <div className="flex-1 bg-emerald-50/30" />
+      </div>
+    );
+  }
+
+  if (!workspace || !currentChannel) {
+    return (
+      <div className="flex flex-col h-full">
+        <div className="flex items-center px-6 py-4 border-b bg-white shadow-sm">
+          <div className="text-sm text-gray-500">Channel not found</div>
+        </div>
+        <div className="flex-1 bg-emerald-50/30 flex items-center justify-center">
+          <div className="text-sm text-gray-500">This channel may have been deleted</div>
+        </div>
+      </div>
+    );
   }
 
   // Sort messages by creation time, newest first
-  const sortedMessages = [...messages].sort((a, b) => a.createdAt - b.createdAt);
+  const sortedMessages = messages ? [...messages].sort((a, b) => a.createdAt - b.createdAt) : [];
 
   return (
     <div className="flex h-full">
