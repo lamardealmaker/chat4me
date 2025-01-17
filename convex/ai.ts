@@ -516,11 +516,11 @@ export const generateSummary = action({
     // Generate summary prompt based on type
     let prompt = "";
     if (type === "channel") {
-      prompt = `Here's the last 24 hours of channel messages:\n\n${conversationContext}\n\nGive me a super quick, casual rundown of what these folks talked about. Keep it short and sweet, like you're catching up with a friend. Focus on the main points and any decisions made.`;
+      prompt = `Here's the last 24 hours of channel messages:\n\n${conversationContext}\n\nGive me a super quick, casual rundown of what these folks talked about, mentioning key participants by name. Keep it short and sweet, like you're catching up with a friend. Focus on who said what about the main points and any decisions made.`;
     } else if (type === "dm") {
-      prompt = `Here's the last 24 hours of direct messages:\n\n${conversationContext}\n\nGive me a quick, friendly recap of this chat. Keep it brief and conversational, like you're telling a friend what was discussed.`;
+      prompt = `Here's the last 24 hours of direct messages:\n\n${conversationContext}\n\nGive me a quick, friendly recap of this chat, mentioning who said what. Keep it brief and conversational, like you're telling a friend what was discussed.`;
     } else {
-      prompt = `Here's a thread discussion:\n\n${conversationContext}\n\nGive me the TL;DR of this thread in a casual, friendly way. What's the main convo about and what did they figure out?`;
+      prompt = `Here's a thread discussion:\n\n${conversationContext}\n\nGive me the TL;DR of this thread in a casual, friendly way, mentioning the key participants. Who started the convo and what did they figure out?`;
     }
 
     // Call OpenAI for summary
@@ -540,7 +540,7 @@ export const generateSummary = action({
         messages: [
           {
             role: "system",
-            content: "You are a friendly assistant that provides super concise, casual summaries of chat conversations. Keep it short, engaging, and use a conversational tone. Avoid formal language and get straight to the point. End your summaries conclusively - do not add questions, suggestions, or phrases like 'let me know if you need more details' or 'want to dig deeper'. Just give the summary and end it there.",
+            content: "You are a friendly assistant that provides information-rich, single-paragraph summaries optimized for being read aloud. Pack as much relevant detail as possible into exactly 50 words. Use natural speech patterns and mention 2-3 key participants by name. Focus on capturing who said what about the core topics and key decisions. Avoid complex structures and jargon. NEVER end with questions or suggestions - end with a clear statement about the outcome.",
           },
           {
             role: "user",
