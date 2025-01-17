@@ -29,6 +29,7 @@ interface SearchResult {
   format?: "text" | "dalle" | "markdown";
   _score: number;
   isAI?: boolean;
+  relevanceExplanation?: string;
 }
 
 export function SearchDialog({ open, onOpenChange, workspaceId }: SearchDialogProps) {
@@ -211,6 +212,14 @@ export function SearchDialog({ open, onOpenChange, workspaceId }: SearchDialogPr
                       <div className="mt-1">
                         <span className="text-xs text-emerald-600 group-hover:text-emerald-700 font-medium">
                           Click to view full message
+                        </span>
+                      </div>
+                    )}
+                    {result.relevanceExplanation && (
+                      <div className="mt-1 flex items-center gap-1.5">
+                        <span className="size-1 bg-emerald-400 rounded-full"></span>
+                        <span className="text-xs text-emerald-600 group-hover:text-emerald-700 font-medium">
+                          {result.relevanceExplanation}
                         </span>
                       </div>
                     )}

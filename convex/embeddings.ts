@@ -1,5 +1,5 @@
 import { v } from "convex/values";
-import { action, internalAction, internalMutation, internalQuery } from "./_generated/server";
+import { action, internalAction, internalMutation, internalQuery, ActionCtx } from "./_generated/server";
 import OpenAI from "openai";
 import { internal, api } from "./_generated/api";
 import { Doc, Id } from "./_generated/dataModel";
@@ -61,23 +61,55 @@ export const getUser = internalQuery({
 export const fetchMessages = internalQuery({
   args: { ids: v.array(v.id("messageEmbeddings")) },
   handler: async (ctx, { ids }) => {
-    const results = [];
-    for (const id of ids) {
-      const embedding = await ctx.db.get(id);
-      if (!embedding) continue;
+    // Batch fetch all embeddings
+    const embeddings = await ctx.db
+      .query("messageEmbeddings")
+      .filter(q => q.or(...ids.map(id => q.eq(q.field("_id"), id))))
+      .collect();
+    
+    if (embeddings.length === 0) return [];
 
-      const message = await ctx.db.get(embedding.messageId);
-      if (!message) continue;
+    // Get unique message IDs
+    const messageIds = [...new Set(embeddings.map(e => e.messageId))];
+    
+    // Batch fetch all messages
+    const messages = await ctx.db
+      .query("messages")
+      .filter(q => q.or(...messageIds.map(id => q.eq(q.field("_id"), id))))
+      .collect();
 
-      const user = await ctx.db.get(message.userId);
-      if (!user) continue;
+    if (messages.length === 0) return [];
 
-      results.push({
-        ...message,
-        userName: user.name ?? "Unknown",
-      });
-    }
-    return results;
+    // Create message lookup map
+    const messageMap = new Map(messages.map(m => [m._id.toString(), m]));
+
+    // Get unique user IDs
+    const userIds = [...new Set(messages.map(m => m.userId))];
+
+    // Batch fetch all users
+    const users = await ctx.db
+      .query("users")
+      .filter(q => q.or(...userIds.map(id => q.eq(q.field("_id"), id))))
+      .collect();
+
+    // Create user lookup map
+    const userMap = new Map(users.map(u => [u._id.toString(), u]));
+
+    // Assemble results maintaining original order
+    return embeddings
+      .map(embedding => {
+        const message = messageMap.get(embedding.messageId.toString());
+        if (!message) return null;
+
+        const user = userMap.get(message.userId.toString());
+        if (!user) return null;
+
+        return {
+          ...message,
+          userName: user.name ?? "Unknown",
+        };
+      })
+      .filter((result): result is NonNullable<typeof result> => result !== null);
   },
 });
 
@@ -147,7 +179,150 @@ export type SearchResultType = Doc<"messages"> & {
   userName: string;
   channelName: string;
   _score: number;
+  isAIRanked: boolean;
+  relevanceExplanation?: string;
 };
+
+type AIEnhancedSearchResult = SearchResultType;
+
+type AIRankingResponse = {
+  rerankedResults: {
+    messageId: string;
+    score: number;
+    explanation: string;
+  }[];
+};
+
+async function rerankedWithAI(
+  ctx: ActionCtx,
+  query: string,
+  results: SearchResultType[]
+): Promise<AIEnhancedSearchResult[]> {
+  const apiKey = process.env.OPENAI_API_KEY;
+  if (!apiKey) throw new Error("OPENAI_API_KEY required");
+
+  // Prepare context for GPT-4o-mini
+  const searchContext = {
+    query,
+    results: results.map(r => ({
+      id: r._id,
+      text: r.text,
+      userName: r.userName,
+      channelName: r.channelName,
+      score: r._score,
+      createdAt: new Date(r.createdAt).toISOString()
+    }))
+  };
+
+  const response = await fetch("https://api.openai.com/v1/chat/completions", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${apiKey}`,
+    },
+    body: JSON.stringify({
+      model: "gpt-4o-mini",
+      messages: [
+        {
+          role: "system",
+          content: `You are an expert search result ranker. Analyze and rerank search results based on relevance.
+
+IMPORTANT: Return ONLY raw JSON without any markdown formatting, backticks, or explanation text.
+DO NOT include results with low relevance (score < 0.5) in the response.
+
+Example response format:
+{"rerankedResults":[{"messageId":"abc","score":0.95,"explanation":"Exact topic match"}]}
+
+Search Pattern Analysis:
+1. Literal Search (when query looks like a specific phrase or word to find):
+   - Prioritize exact or close matches in the text
+   - Consider word variations and substrings
+   - Look for similar phrases or typo-like variations
+   - Score based on match precision and completeness
+
+2. Semantic Search (when query looks like a topic or concept):
+   - Focus on meaning and context
+   - Consider related concepts and synonyms
+   - Look at overall message context
+   - Score based on topical relevance
+
+For each message, evaluate BOTH patterns and use the higher score.
+Example scenarios:
+- Query "how to deploy" -> Semantic search, look for deployment discussions
+- Query "thanks everyone" -> Literal search, find messages containing thanks
+- Query "error 404" -> Both literal (exact error) and semantic (error discussions)
+
+Instructions:
+1. Analyze message content for:
+   - Exact/near matches (literal search)
+   - Semantic relevance (meaning search)
+   - Channel context
+   - Recency
+
+2. For each relevant result provide:
+   - messageId (string)
+   - score (number 0-1)
+   - explanation (string, max 50 chars)
+
+3. Return only high-relevance matches (score >= 0.5)
+
+Scoring:
+0.9-1.0 = Perfect match (exact phrase or perfect semantic match)
+0.7-0.9 = Strong relevance (partial phrase or strong semantic match)
+0.5-0.7 = Moderate relevance (related phrase or moderate semantic match)
+< 0.5 = Do not include in results`
+        },
+        {
+          role: "user",
+          content: JSON.stringify(searchContext)
+        }
+      ],
+      temperature: 0.1, // Reduced temperature for more consistent output
+    })
+  });
+
+  if (!response.ok) {
+    throw new Error("OpenAI API error");
+  }
+
+  const aiResponse = await response.json();
+  let ranking: AIRankingResponse;
+  
+  try {
+    const content = aiResponse.choices[0].message.content;
+    // Remove any potential markdown or backticks
+    const cleanJson = content.replace(/```json\n?|\n?```/g, '').trim();
+    ranking = JSON.parse(cleanJson);
+    
+    // Validate response structure
+    if (!ranking.rerankedResults || !Array.isArray(ranking.rerankedResults)) {
+      throw new Error("Invalid response structure");
+    }
+  } catch (error) {
+    console.error("Failed to parse AI response:", aiResponse.choices[0].message.content);
+    throw new Error("Failed to parse AI ranking response");
+  }
+
+  // Map AI rankings back to original results
+  const rankedResults = new Map(
+    ranking.rerankedResults.map(r => [r.messageId, r])
+  );
+
+  return results
+    .map(result => {
+      const ranking = rankedResults.get(result._id.toString());
+      if (!ranking) return null;
+      
+      return {
+        ...result,
+        _score: ranking.score,
+        relevanceExplanation: ranking.explanation,
+        isAIRanked: true
+      };
+    })
+    .filter((result): result is NonNullable<typeof result> => result !== null)
+    .sort((a, b) => b._score - a._score);
+}
 
 interface Channel {
   _id: Id<"channels">;
@@ -174,25 +349,25 @@ export const searchMessages = action({
     cursor: v.optional(v.string()),
     limit: v.optional(v.number()),
   },
-  handler: async (ctx, { workspaceId, query, cursor, limit = 10 }): Promise<{ results: SearchResultType[], nextCursor?: string }> => {
-    console.log("Searching messages with query:", query);
+  handler: async (ctx, args) => {
+    console.log("Searching messages with query:", args.query);
     
     // Generate embedding for vector search
     const vector = await ctx.runAction(internal.embeddings.generateEmbedding, {
-      text: query,
+      text: args.query,
     });
     console.log("Generated search vector of length:", vector.length);
 
     // Get all channels in workspace (do this once)
-    const channels = await ctx.runQuery(internal.embeddings.getChannels, { workspaceId }) as Channel[];
+    const channels = await ctx.runQuery(internal.embeddings.getChannels, { workspaceId: args.workspaceId }) as Channel[];
     console.log("Found channels:", channels.length);
     const channelIds = channels.map((c: Channel) => c._id);
     const channelMap = new Map(channels.map((c: Channel) => [c._id.toString(), c]));
 
-    // Vector search with higher limit since we'll filter more aggressively
+    // Vector search with reduced limit
     const vectorResults = await ctx.vectorSearch("messageEmbeddings", "by_vector", {
       vector,
-      limit: 30, // Increased from 20 to account for filtering
+      limit: 7,
     });
     console.log("Vector search results:", vectorResults.length);
 
@@ -206,34 +381,12 @@ export const searchMessages = action({
       })
     );
 
-    // Log semantic search results with channel info
-    console.log("\n=== Semantic Search Results ===");
-    messageData
-      .filter(r => r.data?.message)
-      .sort((a, b) => b.score - a.score)
-      .forEach((result, i) => {
-        const msg = result.data?.message;
-        const channel = msg ? channelMap.get(msg.channelId.toString()) : null;
-        console.log(`\n#${i + 1} (Score: ${result.score.toFixed(4)} | Channel: ${channel?.name || 'unknown'})\n"${msg?.text || 'N/A'}"`);
-      });
-    console.log("\n=== End Semantic Results ===\n");
-
     // Track seen message IDs to avoid duplicates
     const seenMessageIds = new Set<string>();
     const combinedResults: SearchResultType[] = [];
     
     // Function to check if a message is worth including
     const isQualityMatch = (text: string, score: number) => {
-      const words = query.trim().split(/\s+/);
-      const isOneWord = words.length === 1;
-      
-      if (isOneWord) {
-        // For single-word queries, require high score or exact match
-        const exactMatch = text.toLowerCase().includes(query.toLowerCase());
-        return exactMatch || score > 0.95;
-      }
-      
-      // For multi-word queries, use normal scoring
       return true;
     };
 
@@ -243,23 +396,12 @@ export const searchMessages = action({
       const score = messageData[index].score;
       
       if (!data) continue;
-      
-      // Apply quality filter
-      if (!isQualityMatch(data.text, score)) {
-        console.log(`Filtering out low-quality match: "${data.text.slice(0, 100)}${data.text.length > 100 ? '...' : ''}" (score: ${score})`);
-        continue;
-      }
 
       seenMessageIds.add(data._id.toString());
       
-      // Check if message is in any workspace channel
       const channel = channelMap.get(data.channelId.toString());
-      if (!channel) {
-        console.log(`Skipping message from unknown channel: "${data.text.slice(0, 100)}${data.text.length > 100 ? '...' : ''}"`);
-        continue;
-      }
+      if (!channel) continue;
 
-      // Get user info
       const user = await ctx.runQuery(internal.embeddings.getUser, { userId: data.userId });
       if (!user) continue;
 
@@ -268,79 +410,71 @@ export const searchMessages = action({
         userName: user.name ?? "Unknown",
         channelName: channel.name,
         _score: score,
+        isAIRanked: false,
       });
     }
 
-    // Keyword search
-    const startTime = cursor ? parseInt(cursor) : Date.now();
+    // Keyword search with reduced limit
+    const startTime = args.cursor ? parseInt(args.cursor) : Date.now();
     const keywordMessages = await ctx.runQuery(api.messages.search, {
-      workspaceId,
-      query,
+      workspaceId: args.workspaceId,
+      query: args.query,
       startTime,
-      limit: 20,
+      limit: 5,
     });
 
-    console.log("\n=== Keyword Search Results ===");
-    // Add keyword results (only if they pass quality filter)
+    // Add keyword results
     for (const msg of keywordMessages) {
-      if (seenMessageIds.has(msg._id.toString())) {
-        console.log(`Skipping duplicate message: "${msg.text.slice(0, 100)}${msg.text.length > 100 ? '...' : ''}"`);
-        continue;
-      }
-
-      // Apply quality filter for keyword results too
-      if (!isQualityMatch(msg.text, 0)) {
-        console.log(`Filtering out low-quality keyword match: "${msg.text.slice(0, 100)}${msg.text.length > 100 ? '...' : ''}"`);
-        continue;
-      }
+      if (seenMessageIds.has(msg._id.toString())) continue;
 
       seenMessageIds.add(msg._id.toString());
 
       const channel = channelMap.get(msg.channelId.toString());
-      if (!channel) {
-        console.log(`Skipping keyword match from unknown channel: "${msg.text.slice(0, 100)}${msg.text.length > 100 ? '...' : ''}"`);
-        continue;
-      }
+      if (!channel) continue;
 
       const user = await ctx.runQuery(internal.embeddings.getUser, { userId: msg.userId });
       if (!user) continue;
-
-      console.log(`\nKeyword match in ${channel.name}: "${msg.text}"`);
 
       combinedResults.push({
         ...msg,
         userName: user.name ?? "Unknown",
         channelName: channel.name,
-        _score: 0, // Keyword results get lower priority
+        _score: 0,
+        isAIRanked: false,
       });
     }
-    console.log("\n=== End Keyword Results ===\n");
 
-    // Sort results - semantic matches first, then by date
-    combinedResults.sort((a, b) => {
-      if (a._score !== b._score) {
-        return b._score - a._score;
-      }
-      return b.createdAt - a.createdAt;
-    });
-
-    // Log channel distribution
-    const channelCounts = new Map<string, number>();
-    for (const result of combinedResults) {
-      channelCounts.set(result.channelName, (channelCounts.get(result.channelName) || 0) + 1);
+    try {
+      // Apply AI reranking
+      const aiRankedResults = await rerankedWithAI(ctx, args.query, combinedResults);
+      return {
+        results: aiRankedResults.map(result => ({
+          ...result,
+          isAIRanked: true
+        })),
+        nextCursor: undefined,
+        isAIRanked: true
+      };
+    } catch (error) {
+      console.error("AI ranking failed, using default ranking:", error);
+      // Fallback to original ranking
+      combinedResults.sort((a, b) => {
+        if (a._score !== b._score) {
+          return b._score - a._score;
+        }
+        return b.createdAt - a.createdAt;
+      });
+      
+      return {
+        results: combinedResults.map(result => ({
+          ...result,
+          isAIRanked: false
+        })),
+        nextCursor: undefined,
+        isAIRanked: false
+      };
     }
-    console.log("\nResults by channel:");
-    for (const [channel, count] of channelCounts.entries()) {
-      console.log(`${channel}: ${count} results`);
-    }
-
-    console.log(`\nTotal results: ${combinedResults.length} (${vectorResults.length} semantic + ${keywordMessages.length} keyword - ${seenMessageIds.size} unique)\n`);
-
-    return {
-      results: combinedResults,
-      nextCursor: undefined
-    };
-  },
+  }
 });
 
 export const getEmbeddingAndMessage = internalQuery({

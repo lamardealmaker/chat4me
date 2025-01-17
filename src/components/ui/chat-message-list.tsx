@@ -4,6 +4,7 @@ import { Button } from "@/components/ui/button";
 import { useAutoScroll } from "@/hooks/use-auto-scroll";
 import { MessageEditDialog } from "./message-edit-dialog";
 import { Pencil } from "lucide-react";
+import { Id } from "../../../convex/_generated/dataModel";
 
 interface ChatMessageListProps extends React.HTMLAttributes<HTMLDivElement> {
   smooth?: boolean;
