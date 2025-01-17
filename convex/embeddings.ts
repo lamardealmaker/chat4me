@@ -222,7 +222,7 @@ async function rerankedWithAI(
       Authorization: `Bearer ${apiKey}`,
     },
     body: JSON.stringify({
-      model: "gpt-4o-mini",
+      model: "gpt-4o", // changed to gpt-4o from 4o-mini do not change this
       messages: [
         {
           role: "system",
@@ -233,6 +233,27 @@ DO NOT include results with low relevance (score < 0.5) in the response.
 
 Example response format:
 {"rerankedResults":[{"messageId":"abc","score":0.95,"explanation":"Exact topic match"}]}
+
+Message Type Analysis:
+1. Informative Messages (Highest Priority):
+   - Contains factual information
+   - Answers questions
+   - Explains concepts or decisions
+   - Provides detailed context
+   - Original content/statements
+   - Substantive AI responses
+
+2. Discussion Messages (Medium Priority):
+   - Contributes new points to a discussion
+   - Asks meaningful questions
+   - Provides reasoned opinions
+   - Follow-up questions with context
+
+3. Simple Replies (Lower Priority):
+   - Acknowledgments ("thanks", "ok", etc)
+   - Brief reactions without substance
+   - One-word responses
+   - Follow-up questions without context
 
 Search Pattern Analysis:
 1. Literal Search (when query looks like a specific phrase or word to find):
@@ -255,6 +276,7 @@ Example scenarios:
 
 Instructions:
 1. Analyze message content for:
+   - Message type (informative/discussion/reply)
    - Exact/near matches (literal search)
    - Semantic relevance (meaning search)
    - Channel context
@@ -271,7 +293,12 @@ Scoring:
 0.9-1.0 = Perfect match (exact phrase or perfect semantic match)
 0.7-0.9 = Strong relevance (partial phrase or strong semantic match)
 0.5-0.7 = Moderate relevance (related phrase or moderate semantic match)
-< 0.5 = Do not include in results`
+< 0.5 = Do not include in results
+
+Adjust scores based on message type:
+- Informative messages: Keep original score
+- Discussion messages: Multiply score by 0.9
+- Simple replies: Multiply score by 0.7`
         },
         {
           role: "user",
