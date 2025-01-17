@@ -11,6 +11,29 @@ import ReactMarkdown from 'react-markdown';
 import { Button } from "@/components/ui/button";
 import { Separator } from "@/components/ui/separator";
 
+// Add new Waveform component
+const Waveform = ({ isPlaying }: { isPlaying: boolean }) => {
+  return (
+    <div className="flex items-center gap-0.5 h-4">
+      {[...Array(12)].map((_, i) => (
+        <div
+          key={i}
+          className={cn(
+            "w-0.5 bg-gradient-to-t from-emerald-500 to-emerald-300 rounded-full transition-all duration-150",
+            isPlaying 
+              ? `h-${Math.random() > 0.5 ? '4' : '2'} animate-pulse` 
+              : "h-1"
+          )}
+          style={{
+            animationDelay: `${i * 0.1}s`,
+            animationDuration: '0.8s'
+          }}
+        />
+      ))}
+    </div>
+  );
+};
+
 interface SummaryDialogProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
@@ -232,7 +255,7 @@ export const SummaryDialog = ({
                   </div>
                 ) : audioBase64 ? (
                   <div className="flex items-center justify-between w-full">
-                    <div className="flex items-center gap-2">
+                    <div className="flex items-center gap-4">
                       <Button
                         variant="ghost"
                         size="sm"
@@ -244,9 +267,10 @@ export const SummaryDialog = ({
                         ) : (
                           <Play className="h-4 w-4" />
                         )}
-                        <span className="ml-2">{isPlaying ? 'Stop' : 'Play'} Summary</span>
+                        <span className="ml-2">{isPlaying ? 'Stop' : 'Play'}</span>
                       </Button>
-                      <span className="text-sm text-emerald-700">• By: {voiceName}</span>
+                      <Waveform isPlaying={isPlaying} />
+                      <span className="text-sm text-emerald-700">• {voiceName}</span>
                     </div>
                   </div>
                 ) : audioError ? (
